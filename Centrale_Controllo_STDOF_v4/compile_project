@@ -1,0 +1,6 @@
+#/bin/bash -x
+PROG_DIR="/home/root/Common"
+SRC=$PROG_DIR/Source
+HEADER=$PROG_DIR/Include
+
+gcc -Wall main.c $SRC/Arm/arm_udp.c ${SRC}/Rs232/rs232.c ${SRC}/Socket_udp/socket_udp.c ${SRC}/Socket_can/socket_can_interface.c ${SRC}/Joystick/joystick.c ${SRC}/Segway/segway_udp_v2.c ${SRC}/Segway/segway_config.c -o centrale_controllo_stdof.o -ludev -I$HEADER

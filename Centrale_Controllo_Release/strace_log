@@ -1,0 +1,304 @@
+execve("./centrale_controllo_stdof.o", ["./centrale_controllo_stdof.o"], [/* 14 vars */]) = 0
+brk(0)                                  = 0x17000
+uname({sys="Linux", node="beaglebone", ...}) = 0
+mmap2(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x400f1000
+access("/etc/ld.so.preload", R_OK)      = -1 ENOENT (No such file or directory)
+open("/etc/ld.so.cache", O_RDONLY)      = 3
+fstat64(3, {st_mode=S_IFREG|0644, st_size=45943, ...}) = 0
+mmap2(NULL, 45943, PROT_READ, MAP_PRIVATE, 3, 0) = 0x40183000
+close(3)                                = 0
+open("/lib/libudev.so.0", O_RDONLY)     = 3
+read(3, "\177ELF\1\1\1\0\0\0\0\0\0\0\0\0\3\0(\0\1\0\0\0\10$\0\0004\0\0\0"..., 512) = 512
+fstat64(3, {st_mode=S_IFREG|0755, st_size=42992, ...}) = 0
+mmap2(NULL, 74476, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_DENYWRITE, 3, 0) = 0x4023e000
+mprotect(0x40249000, 28672, PROT_NONE)  = 0
+mmap2(0x40250000, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0xa) = 0x40250000
+close(3)                                = 0
+open("/lib/libc.so.6", O_RDONLY)        = 3
+read(3, "\177ELF\1\1\1\0\0\0\0\0\0\0\0\0\3\0(\0\1\0\0\0(W\1\0004\0\0\0"..., 512) = 512
+fstat64(3, {st_mode=S_IFREG|0755, st_size=1184972, ...}) = 0
+mmap2(NULL, 1221884, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_DENYWRITE, 3, 0) = 0x40251000
+mprotect(0x4036e000, 32768, PROT_NONE)  = 0
+mmap2(0x40376000, 12288, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x11d) = 0x40376000
+mmap2(0x40379000, 9468, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0) = 0x40379000
+close(3)                                = 0
+open("/lib/librt.so.1", O_RDONLY)       = 3
+read(3, "\177ELF\1\1\1\0\0\0\0\0\0\0\0\0\3\0(\0\1\0\0\0\240\26\0\0004\0\0\0"..., 512) = 512
+fstat64(3, {st_mode=S_IFREG|0755, st_size=26524, ...}) = 0
+mmap2(NULL, 57876, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_DENYWRITE, 3, 0) = 0x400b3000
+mprotect(0x400b9000, 28672, PROT_NONE)  = 0
+mmap2(0x400c0000, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x5) = 0x400c0000
+close(3)                                = 0
+open("/lib/libpthread.so.0", O_RDONLY)  = 3
+read(3, "\177ELF\1\1\1\0\0\0\0\0\0\0\0\0\3\0(\0\1\0\0\0\30F\0\0004\0\0\0"..., 512) = 512
+fstat64(3, {st_mode=S_IFREG|0755, st_size=88472, ...}) = 0
+mmap2(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x400cb000
+mmap2(NULL, 127528, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_DENYWRITE, 3, 0) = 0x4013d000
+mprotect(0x40152000, 28672, PROT_NONE)  = 0
+mmap2(0x40159000, 8192, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x14) = 0x40159000
+mmap2(0x4015b000, 4648, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0) = 0x4015b000
+close(3)                                = 0
+mmap2(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x40016000
+set_tls(0x400164c0, 0x40016b98, 0x4004a050, 0x400164c0, 0x4004a050) = 0
+mprotect(0x40159000, 4096, PROT_READ)   = 0
+mprotect(0x400c0000, 4096, PROT_READ)   = 0
+mprotect(0x40376000, 8192, PROT_READ)   = 0
+mprotect(0x40049000, 4096, PROT_READ)   = 0
+munmap(0x40183000, 45943)               = 0
+set_tid_address(0x40016068)             = 435
+set_robust_list(0x40016070, 0xc)        = 0
+futex(0xbe9dcd14, FUTEX_WAKE_PRIVATE, 1) = 0
+futex(0xbe9dcd14, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME, 1, NULL, 4015a000) = -1 EAGAIN (Resource temporarily unavailable)
+rt_sigaction(SIGRTMIN, {0x40141128, [], SA_SIGINFO|0x4000000}, NULL, 8) = 0
+rt_sigaction(SIGRT_1, {0x40140fc8, [], SA_RESTART|SA_SIGINFO|0x4000000}, NULL, 8) = 0
+rt_sigprocmask(SIG_UNBLOCK, [RTMIN RT_1], NULL, 8) = 0
+getrlimit(RLIMIT_STACK, {rlim_cur=8192*1024, rlim_max=RLIM_INFINITY}) = 0
+gettimeofday({1371064306, 56147}, NULL) = 0
+brk(0)                                  = 0x17000
+brk(0x38000)                            = 0x38000
+open("/var/log/stdof_log.txt", O_WRONLY|O_CREAT|O_APPEND, 0666) = 3
+fstat64(3, {st_mode=S_IFREG|0644, st_size=34326, ...}) = 0
+mmap2(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x400ab000
+fstat64(3, {st_mode=S_IFREG|0644, st_size=34326, ...}) = 0
+_llseek(3, 34326, [34326], SEEK_SET)    = 0
+open("/etc/localtime", O_RDONLY)        = 4
+fstat64(4, {st_mode=S_IFREG|0644, st_size=118, ...}) = 0
+fstat64(4, {st_mode=S_IFREG|0644, st_size=118, ...}) = 0
+mmap2(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x4018b000
+read(4, "TZif2\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\1\0\0\0\1\0\0\0\0"..., 4096) = 118
+_llseek(4, -6, [112], SEEK_CUR)         = 0
+read(4, "\nUTC0\n", 4096)               = 6
+close(4)                                = 0
+munmap(0x4018b000, 4096)                = 0
+write(3, "[Jun 12 19:11:46]stdof: Initiali"..., 48) = 48
+close(3)                                = 0
+munmap(0x400ab000, 4096)                = 0
+fstat64(1, {st_mode=S_IFCHR|0620, st_rdev=makedev(136, 0), ...}) = 0
+mmap2(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x40075000
+write(1, "Initializing stdof. . .\n", 24) = 24
+socket(PF_INET, SOCK_DGRAM, IPPROTO_IP) = 3
+sendto(3, "\5\1\0\0\0\20\0\0\0\0C\334", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+sendto(3, "\5\1\0\0\0\21\0\0\0\0\203\341", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+sendto(3, "\5\1\0\0\0\22\0\0\0\0\203\245", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+nanosleep({0, 20000000}, NULL)          = 0
+sendto(3, "\5\1\0\0\0\1?\200\0\0\274-", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+nanosleep({0, 20000000}, NULL)          = 0
+sendto(3, "\5\1\0\0\0\2?\200\0\0\274i", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+nanosleep({0, 20000000}, NULL)          = 0
+sendto(3, "\5\1\0\0\0\3?\200\0\0|T", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+nanosleep({0, 20000000}, NULL)          = 0
+sendto(3, "\5\1\0\0\0\4?\200\0\0\274\341", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+nanosleep({0, 20000000}, NULL)          = 0
+sendto(3, "\5\1\0\0\0\5?\200\0\0|\334", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+nanosleep({0, 20000000}, NULL)          = 0
+sendto(3, "\5\1\0\0\0\6?\200\0\0|\230", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+nanosleep({0, 20000000}, NULL)          = 0
+sendto(3, "\5\1\0\0\0\7?\200\0\0\274\245", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+nanosleep({0, 20000000}, NULL)          = 0
+sendto(3, "\5\1\0\0\0\10?\7\256\24\373=", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+nanosleep({0, 20000000}, NULL)          = 0
+sendto(3, "\5\1\0\0\0\t?6\0214\34 ", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+nanosleep({0, 20000000}, NULL)          = 0
+sendto(3, "\5\1\0\0\0\nA\302\"46)", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+nanosleep({0, 20000000}, NULL)          = 0
+sendto(3, "\5\1\0\0\0\20\10\0\2\377\3\237", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+sendto(3, "\5\1\0\0\0\21\0\377\0 k\320", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+sendto(3, "\5\1\0\0\0\22\0\0\0\0\203\245", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+gettimeofday({1371064306, 295405}, NULL) = 0
+open("/var/log/stdof_log.txt", O_WRONLY|O_CREAT|O_APPEND, 0666) = 4
+fstat64(4, {st_mode=S_IFREG|0644, st_size=34374, ...}) = 0
+mmap2(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x40107000
+fstat64(4, {st_mode=S_IFREG|0644, st_size=34374, ...}) = 0
+_llseek(4, 34374, [34374], SEEK_SET)    = 0
+stat64("/etc/localtime", {st_mode=S_IFREG|0644, st_size=118, ...}) = 0
+write(4, "[Jun 12 19:11:46]segway_init: In"..., 47) = 47
+close(4)                                = 0
+munmap(0x40107000, 4096)                = 0
+write(1, "Init Segway\t[OK]\n", 17)     = 17
+open("/dev/input/js0", O_RDONLY)        = 4
+gettimeofday({1371064306, 299982}, NULL) = 0
+open("/var/log/stdof_log.txt", O_WRONLY|O_CREAT|O_APPEND, 0666) = 5
+fstat64(5, {st_mode=S_IFREG|0644, st_size=34421, ...}) = 0
+mmap2(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x400a7000
+fstat64(5, {st_mode=S_IFREG|0644, st_size=34421, ...}) = 0
+_llseek(5, 34421, [34421], SEEK_SET)    = 0
+stat64("/etc/localtime", {st_mode=S_IFREG|0644, st_size=118, ...}) = 0
+write(5, "[Jun 12 19:11:46]open_joystick: "..., 57) = 57
+close(5)                                = 0
+munmap(0x400a7000, 4096)                = 0
+write(1, "Find Local Joystick\t[OK]\n", 25) = 25
+open("/etc/udev/udev.conf", O_RDONLY|O_LARGEFILE|O_CLOEXEC) = 5
+fstat64(5, {st_mode=S_IFREG|0644, st_size=44, ...}) = 0
+mmap2(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x40085000
+read(5, "# see udev(7) for details\n\n#udev"..., 4096) = 44
+read(5, "", 4096)                       = 0
+close(5)                                = 0
+munmap(0x40085000, 4096)                = 0
+socket(PF_NETLINK, SOCK_RAW|SOCK_CLOEXEC|SOCK_NONBLOCK, 15) = 5
+setsockopt(5, SOL_SOCKET, SO_ATTACH_FILTER, "\r\0\0\0`\267\235\276", 8) = 0
+bind(5, {sa_family=AF_NETLINK, pid=0, groups=00000002}, 12) = 0
+getsockname(5, {sa_family=AF_NETLINK, pid=435, groups=00000002}, [12]) = 0
+setsockopt(5, SOL_SOCKET, SO_PASSCRED, [1], 4) = 0
+gettimeofday({1371064306, 307703}, NULL) = 0
+open("/var/log/stdof_log.txt", O_WRONLY|O_CREAT|O_APPEND, 0666) = 6
+fstat64(6, {st_mode=S_IFREG|0644, st_size=34478, ...}) = 0
+mmap2(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x40005000
+fstat64(6, {st_mode=S_IFREG|0644, st_size=34478, ...}) = 0
+_llseek(6, 34478, [34478], SEEK_SET)    = 0
+stat64("/etc/localtime", {st_mode=S_IFREG|0644, st_size=118, ...}) = 0
+write(6, "[Jun 12 19:11:46]udev_new: Init "..., 42) = 42
+close(6)                                = 0
+munmap(0x40005000, 4096)                = 0
+write(1, "Init udev\t[OK]\n", 15)       = 15
+gettimeofday({1371064306, 311915}, NULL) = 0
+open("/var/log/stdof_log.txt", O_WRONLY|O_CREAT|O_APPEND, 0666) = 6
+fstat64(6, {st_mode=S_IFREG|0644, st_size=34520, ...}) = 0
+mmap2(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x40093000
+fstat64(6, {st_mode=S_IFREG|0644, st_size=34520, ...}) = 0
+_llseek(6, 34520, [34520], SEEK_SET)    = 0
+stat64("/etc/localtime", {st_mode=S_IFREG|0644, st_size=118, ...}) = 0
+write(6, "[Jun 12 19:11:46]stdof: Run main"..., 46) = 46
+close(6)                                = 0
+munmap(0x40093000, 4096)                = 0
+write(1, "Run main program. . .\n", 22) = 22
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 1 (in [4], left {0, 49969})
+read(4, "|K\6\0\0\0\201\0", 8)          = 8
+select(6, [3 4 5], NULL, NULL, {0, 49969}) = 1 (in [4], left {0, 49938})
+read(4, "|K\6\0\0\0\201\1", 8)          = 8
+select(6, [3 4 5], NULL, NULL, {0, 49938}) = 1 (in [4], left {0, 49907})
+read(4, "|K\6\0\0\0\201\2", 8)          = 8
+select(6, [3 4 5], NULL, NULL, {0, 49907}) = 1 (in [4], left {0, 49907})
+read(4, "|K\6\0\0\0\201\3", 8)          = 8
+select(6, [3 4 5], NULL, NULL, {0, 49907}) = 1 (in [4], left {0, 49907})
+read(4, "|K\6\0\0\0\201\4", 8)          = 8
+select(6, [3 4 5], NULL, NULL, {0, 49907}) = 1 (in [4], left {0, 49907})
+read(4, "|K\6\0\0\0\201\5", 8)          = 8
+select(6, [3 4 5], NULL, NULL, {0, 49907}) = 1 (in [4], left {0, 49907})
+read(4, "|K\6\0\0\0\201\6", 8)          = 8
+select(6, [3 4 5], NULL, NULL, {0, 49907}) = 1 (in [4], left {0, 49876})
+read(4, "|K\6\0\0\0\201\7", 8)          = 8
+select(6, [3 4 5], NULL, NULL, {0, 49876}) = 1 (in [4], left {0, 49845})
+read(4, "|K\6\0\0\0\202\0", 8)          = 8
+select(6, [3 4 5], NULL, NULL, {0, 49845}) = 1 (in [4], left {0, 49814})
+read(4, "|K\6\0\0\0\202\1", 8)          = 8
+select(6, [3 4 5], NULL, NULL, {0, 49814}) = 1 (in [4], left {0, 49814})
+read(4, "|K\6\0\0\0\202\2", 8)          = 8
+select(6, [3 4 5], NULL, NULL, {0, 49814}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+sendto(3, "\5\1\0\0\0\20\0\0\0\0C\334", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+sendto(3, "\5\1\0\0\0\21\0\0\0\0\203\341", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+sendto(3, "\5\1\0\0\0\22\0\0\0\0\203\245", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+nanosleep({0, 20000000}, NULL)          = 0
+sendto(3, "\5\1\0\0\0\1?\200\0\0\274-", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+nanosleep({0, 20000000}, NULL)          = 0
+sendto(3, "\5\1\0\0\0\2?\200\0\0\274i", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+nanosleep({0, 20000000}, NULL)          = 0
+sendto(3, "\5\1\0\0\0\3?\200\0\0|T", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+nanosleep({0, 20000000}, NULL)          = 0
+sendto(3, "\5\1\0\0\0\4?\200\0\0\274\341", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+nanosleep({0, 20000000}, NULL)          = 0
+sendto(3, "\5\1\0\0\0\5?\200\0\0|\334", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+nanosleep({0, 20000000}, NULL)          = 0
+sendto(3, "\5\1\0\0\0\6?\200\0\0|\230", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+nanosleep({0, 20000000}, NULL)          = 0
+sendto(3, "\5\1\0\0\0\7?\200\0\0\274\245", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+nanosleep({0, 20000000}, NULL)          = 0
+sendto(3, "\5\1\0\0\0\10?\7\256\24\373=", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+nanosleep({0, 20000000}, NULL)          = 0
+sendto(3, "\5\1\0\0\0\t?6\0214\34 ", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+nanosleep({0, 20000000}, NULL)          = 0
+sendto(3, "\5\1\0\0\0\nA\302\"46)", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+nanosleep({0, 20000000}, NULL)          = 0
+sendto(3, "\5\1\0\0\0\20\10\0\2\377\3\237", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+sendto(3, "\5\1\0\0\0\21\0\377\0 k\320", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+sendto(3, "\5\1\0\0\0\22\0\0\0\0\203\245", 12, 0, {sa_family=AF_INET, sin_port=htons(55), sin_addr=inet_addr("192.168.1.40")}, 16) = 12
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+select(6, [3 4 5], NULL, NULL, {0, 50000}) = 0 (Timeout)
+--- {si_signo=SIGINT, si_code=SI_KERNEL, si_value={int=1074696016, ptr=0x400e8f50}} (Interrupt) ---
++++ killed by SIGINT +++

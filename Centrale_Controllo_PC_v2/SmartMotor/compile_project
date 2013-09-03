@@ -1,0 +1,4 @@
+#/bin/bash -x
+PROG_DIR="/home/root/Centrale_Controllo_PC_v1_1"
+
+gcc -Wall smartmotor.c ../Rs232/rs232.c -o smartmotor.o

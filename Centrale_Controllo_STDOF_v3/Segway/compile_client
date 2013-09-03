@@ -1,0 +1,2 @@
+#! /bin/bash
+gcc -Wall segway_client.c segway_udp.c segway_config.c -o segway_client.o

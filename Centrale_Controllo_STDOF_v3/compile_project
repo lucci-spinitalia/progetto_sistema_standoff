@@ -1,0 +1,4 @@
+#/bin/bash -x
+PROG_DIR="/home/root/Centrale_Controllo_STDOF_v3"
+
+gcc -Wall main.c ${PROG_DIR}/Rs232/rs232.c ${PROG_DIR}/Socket_udp/socket_udp.c ${PROG_DIR}/Socket_can/socket_can_interface.c ${PROG_DIR}/Joystick/joystick.c ${PROG_DIR}/Segway/segway_udp.c ${PROG_DIR}/Segway/segway_config.c -o ${PROG_DIR}/centrale_controllo_stdof.o -ludev

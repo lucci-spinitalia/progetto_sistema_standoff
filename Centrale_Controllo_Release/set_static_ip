@@ -1,0 +1,27 @@
+#! /bin/sh
+#manual
+IPADD="192.168.178.28"
+NETMASK="255.255.255.0"
+GATEWAY="192.168.178.1"
+NAMESRV="192.168.178.1"
+CABLE=`/usr/lib/connman/test/get-services|grep"/net"|awk'{split($2,a,"/")}{print a[5]}'`
+echo "
+"
+
+/usr/lib/connman/test/set-ipv4-method $CABLE manual $IPADD $NETMASK $GATEWAY
+echo "
+"
+
+/usr/lib/connman/test/set-nameservers $CABLE $NAMESRV
+echo "
+"
+
+echo "ETH Cable:"$CABLE
+echo "IP Address:"$IPADD
+echo "Net Mask:"$NETMASK
+echo "Gateway:"$GATEWAY
+echo "Name Server:"$NAMESRV
+echo "
+"
+
+/usr/lib/connman/test/get-services
