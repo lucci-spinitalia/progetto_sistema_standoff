@@ -1,8 +1,0 @@
-EXTRA_DIST = \
-	libsocketcan.pc.in
-
-pkgconfigdir = $(libdir)/pkgconfig
-pkgconfig_DATA = libsocketcan.pc
-
-MAINTAINERCLEANFILES = \
-	GNUmakefile.in

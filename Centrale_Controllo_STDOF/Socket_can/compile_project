@@ -1,4 +1,0 @@
-#/bin/bash -x
-PROG_DIR="/home/root/"
-
-gcc -Wall ${PROG_DIR}/Rs232/rs232.c ${PROG_DIR}/Socket_can/socket_can_interface.c ${PROG_DIR}/Joystick/joystick.c ${PROG_DIR}/Segway/segway.c -o ${PROG_DIR}/Socket_can/socket_can_interface.o -ludev

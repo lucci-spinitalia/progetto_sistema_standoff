@@ -1,7 +1,0 @@
-nobase_include_HEADERS = \
-	libsocketcan.h \
-	can_netlink.h
-
-MAINTAINERCLEANFILES = \
-	libsocketcan_config.h.in \
-	GNUmakefile.in

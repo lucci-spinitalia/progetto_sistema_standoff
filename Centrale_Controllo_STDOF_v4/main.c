@@ -33,18 +33,23 @@
 #include "socket_udp.h"
 #include "arm_udp.h"
 
+#define CCU_ADDRESS "192.168.1.102"
+#define CCU_PORT 
 #define SEGWAY_ADDRESS "192.168.1.40"
 #define SEGWAY_PORT 55
-#define ARM_ADDRESS "127.0.0.1"
-#define ARM_PORT 1006
+#define ARM_ADDRESS "192.168.1.28"
+#define ARM_PORT 8012
+#define ARM_PRESCALER 2
+#define JOY_PORT 8013
 #define JOY_LOCAL_NAME "/dev/input/js0"
 #define JOY_MAX_VALUE 32767 
-#define LED_READY 60
-#define LED_STDBY 48
-#define LED_RUN 49
+#define LED_READY 117
+#define LED_RUN 48
+#define LED_STDBY 49
 #define LED_ARM 7
 #define TIMEOUT_SEC 0 
-#define TIMEOUT_USEC 50000
+#define TIMEOUT_USEC 100000
+#define TIMEOUT_ARM_USEC 10000
 #define LOG_FILE "/var/log/stdof_log.txt"
 
 /* Macro */
@@ -58,17 +63,14 @@ unsigned char robotic_arm_selected = 0;
 int monitor_input_devices(struct udev_monitor *, const char *, int *); 
 void segway_status_update(union segway_union *, int, struct sockaddr_in *,  struct wwvi_js_event *, long int);
 void arm_status_update(int socket, struct sockaddr_in *address, struct wwvi_js_event *jse, long int joy_max_value) ;
-void segway_message_handle(struct udp_frame *frame, union segway_union *segway_status); 
 void message_log(const char *, const char *); 
 int copy_log_file(void);
 
 int main() 
 {
-  /* SocketNet interface */
-  char net_buffer[255];
-
   /* Led */
   char led_buffer[256];
+  unsigned char led_ready_value = 0;
 
   /* Joystick interface */
   struct wwvi_js_event jse;
@@ -90,6 +92,8 @@ int main()
   /* Robotic Arm */
   int socket_arm = -1;
   struct sockaddr_in arm_address;
+  struct arm_frame arm_buffer_temp;
+  int arm_prescaler_count = 0;
 
   /* Generic Variable */
   int done = 0; // for the while in main loop
@@ -147,10 +151,19 @@ int main()
   }
 
   /* Init Arm Client */  
-  if(arm_open(&socket_arm, &arm_address, ARM_ADDRESS, ARM_PORT) == -1)
+  if(arm_open(&socket_arm, &arm_address, JOY_PORT, ARM_ADDRESS, ARM_PORT) == -1)
   {
     message_log("init arm client", strerror(errno));
     perror("init arm client");
+  }
+  else
+  {
+    if(arm_init(0, 1000, 10, 2000, 400, 200000, 500) < 0)
+	{
+	  socket_arm = -1;
+      message_log("init arm", strerror(errno));
+      perror("init arm");	  
+	} 
   }
 
   /* Init Joystick */
@@ -190,19 +203,22 @@ int main()
 
   // The segway requirements state that the minimum update frequency have to be 0.5Hz, so
   // the timeout on udev have to be < 2 secs.
-  select_timeout.tv_sec = TIMEOUT_SEC;
-  select_timeout.tv_usec = TIMEOUT_USEC;
+  if(robotic_arm_selected == 0)
+  {
+    select_timeout.tv_sec = TIMEOUT_SEC;
+    select_timeout.tv_usec = TIMEOUT_USEC;
+  }
+  else
+  {
+    select_timeout.tv_sec = TIMEOUT_SEC;
+    select_timeout.tv_usec = TIMEOUT_ARM_USEC;
+  }
   
   message_log("stdof", "Run main program. . .");
   printf("Run main program. . .\n");
-
-  // Set READY led
-  sprintf(led_buffer, "echo 1 > /sys/class/gpio/gpio%i/value", LED_READY);
-  if(system(led_buffer) < 0)
-    perror("Set Ready led");
   
   while(!done)
-  {
+  { 
     fflush(stdout);
 
     FD_ZERO(&rd);
@@ -212,13 +228,25 @@ int main()
     if((socket_segway > 0) && (robotic_arm_selected == 0))
     {
       FD_SET(socket_segway, &rd);
-      nfds = max(nfds, socket_segway);  
+      nfds = max(nfds, socket_segway);
+	  
+	  if(segway_buffer_tx_empty == 0)
+	  {
+	    FD_SET(socket_segway, &wr);
+        nfds = max(nfds, socket_segway);  
+	  }
     }
 
     if((socket_arm > 0) && (robotic_arm_selected))
     {
       FD_SET(socket_arm, &rd);
       nfds = max(nfds, socket_arm);  
+	  
+	  if(arm_buffer_tx_empty == 0)
+	  {
+	    FD_SET(socket_arm, &wr);
+        nfds = max(nfds, socket_arm);  
+	  }
     }
 
     if(joy_local > 0)
@@ -233,7 +261,7 @@ int main()
       nfds = max(nfds, udev_fd);
     }
 
-    select_result = select(nfds + 1, &rd, NULL, NULL, &select_timeout);
+    select_result = select(nfds + 1, &rd, &wr, NULL, &select_timeout);
 
     if(select_result == -1 && errno == EAGAIN)
     {
@@ -264,7 +292,7 @@ int main()
     {
       if(FD_ISSET(socket_segway, &rd))
       {
-        bytes_read = segway_read(socket_segway, &segway_status);
+        bytes_read = segway_read(socket_segway, &segway_status, NULL);
 
         if(bytes_read <= 0)
         {
@@ -277,7 +305,7 @@ int main()
          
           if(segway_down == 1)
           {
-            message_log("segway_init", "Segway Init\t[OK]");
+            message_log("segway_init", "Segway Init\t[OK]\n");
             printf("Segway Init\t[OK]");
         
             segway_configure_audio_command(socket_segway, &segway_address, 9);
@@ -288,6 +316,35 @@ int main()
         }
         continue;
       }
+	  
+	  if(FD_ISSET(socket_segway, &wr))
+	  {
+	    if(segway_send(socket_segway, &segway_address) < 0)
+	    {
+	  	  if(led_ready_value == 1)
+	      {
+	        led_ready_value = 0;
+            sprintf(led_buffer, "echo 0 > /sys/class/gpio/gpio%i/value", LED_READY);
+      
+	        if(system(led_buffer) < 0)
+              perror("Set Ready led");
+          }
+	    }
+	    else
+	    {
+	  	  if(led_ready_value == 0)
+	      {
+	        led_ready_value = 1;
+            sprintf(led_buffer, "echo 1 > /sys/class/gpio/gpio%i/value", LED_READY);
+      
+	        if(system(led_buffer) < 0)
+              perror("Set Ready led");
+          }
+	    }
+		
+		continue;
+	  }
+	  
     }
 
     /* Manage arm message */
@@ -295,13 +352,47 @@ int main()
     {
       if(FD_ISSET(socket_arm, &rd))
       {
-        /*bytes_read = arm_read(socket_arm);
+	    // the message would be an information such position or warning
+		bytes_read = recvfrom(socket_arm, &arm_buffer_temp, sizeof(struct arm_frame), 0, NULL, NULL);
 
         if(bytes_read <= 0)
         {
           message_log("arm_read", strerror(errno));
           perror("arm_read");
-        }*/
+        }
+		else
+		{
+		  arm_link[query_link - 1].actual_position = atoi(arm_buffer_temp.frame);
+		  query_link = -1;
+		}
+
+        continue;
+      }
+	  
+	  if(FD_ISSET(socket_arm, &wr))
+      {
+	    if(arm_send(socket_arm, &arm_address) < 0)
+		{
+	      if(led_ready_value == 1)
+	      {
+	        led_ready_value = 0;
+            sprintf(led_buffer, "echo 0 > /sys/class/gpio/gpio%i/value", LED_READY);
+      
+	        if(system(led_buffer) < 0)
+              perror("Set Ready led");
+          }		
+		}
+		else
+		{
+	      if(led_ready_value == 0)
+	      {
+	        led_ready_value = 1;
+            sprintf(led_buffer, "echo 1 > /sys/class/gpio/gpio%i/value", LED_READY);
+      
+	        if(system(led_buffer) < 0)
+              perror("Set Ready led");
+          }		
+		}
 
         continue;
       }
@@ -369,31 +460,40 @@ int main()
       //printf("Front Batt1 SOC: %f\n", convert_to_float(segway_status.list.front_base_batt_1_soc));
       //printf("Front Batt2 SOC: %f\n", convert_to_float(segway_status.list.front_base_batt_2_soc));
       //printf("Rear Batt1 SOC: %f\n", convert_to_float(segway_status.list.rear_base_batt_1_soc));
-      //printf("Rear Batt2 SOC: %f\n", convert_to_float(segway_status.list.rear_base_batt_2_soc));
-
-      if(segway_send(socket_segway, &segway_address) < 0)
-        perror("segway_send");
+      //printf("Rear Batt2 SOC: %f\n", convert_to_float(segway_status.list.rear_base_batt_2_soc));  
     }
     else
     {
-      arm_status_update(socket_arm, &arm_address, &jse, JOY_MAX_VALUE);
-
-      if(arm_send(socket_arm, &arm_address) < 0)
-        perror("arm_send");
+	  if(arm_prescaler_count >= ARM_PRESCALER)
+	  {
+	    arm_prescaler_count = 0;
+        arm_status_update(socket_arm, &arm_address, &jse, JOY_MAX_VALUE);
+	  }
+      else
+	    arm_prescaler_count++;
     }
 	
     // The segway requirements state that the minimum update frequency have to be 0.5Hz, so
     // the timeout on udev have to be < 2 secs.
-    select_timeout.tv_sec = TIMEOUT_SEC;
-    select_timeout.tv_usec = TIMEOUT_USEC;
-
+    if(robotic_arm_selected == 0)
+    {
+      select_timeout.tv_sec = TIMEOUT_SEC;
+      select_timeout.tv_usec = TIMEOUT_USEC;
+    }
+    else
+    {
+      select_timeout.tv_sec = TIMEOUT_SEC;
+      select_timeout.tv_usec = TIMEOUT_ARM_USEC;
+    }
+	 
   }  // end while(!= done)
 
   return 0;
 }
 
 int monitor_input_devices(struct udev_monitor *udev_mon,
-                          const char *joystick_path, int *joy_local) {
+                          const char *joystick_path, int *joy_local) 
+{
   struct udev_device *udev_dev;
   const char *udev_node;
   const char *udev_subsystem;
@@ -410,16 +510,16 @@ int monitor_input_devices(struct udev_monitor *udev_mon,
       if(!strcmp(udev_node, joystick_path))
       {
         if((!strcmp(udev_device_get_action(udev_dev),"add")) && (*joy_local < 0))
-	{
-	  // add joystick
+	    {
+	      // add joystick
           *joy_local = open_joystick(joystick_path);
 
           if(*joy_local < 0)
             perror("open_joystick");
 
           message_log("stdof", "Joystick added");
-	  printf("stdof: Joystick added\n");
-	}
+	      printf("stdof: Joystick added\n");
+	    }
         else if((!strcmp(udev_device_get_action(udev_dev),"remove")) && (*joy_local > 0))
         {
           // remove joystick
@@ -516,15 +616,15 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
 
       // Change actuator
       if(jse->button[3])
+	  {
         change_actuator_request = 1;
-
+      }
       if((!jse->button[3]) && change_actuator_request)
       {
         change_actuator_request = 0;
 
-        sprintf(buffer, "B/start");
-        printf("%s\t", buffer);
-        robotic_arm_selected = 1;
+		if(arm_start() > 0)
+          robotic_arm_selected = 1;
 
         // Set ARM led
         sprintf(buffer, "echo 1 > /sys/class/gpio/gpio%i/value", LED_ARM);
@@ -565,9 +665,8 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
       {
         change_actuator_request = 0;
 
-        sprintf(buffer, "B/start");
-        printf("%s\t", buffer);
-        robotic_arm_selected = 1;
+        if(arm_start() > 0)
+          robotic_arm_selected = 1;
 
         // Set ARM led
         sprintf(buffer, "echo 1 > /sys/class/gpio/gpio%i/value", LED_ARM);
@@ -608,9 +707,8 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
       {
         change_actuator_request = 0;
 
-        sprintf(buffer, "B/start");
-        printf("%s\t", buffer);
-        robotic_arm_selected = 1;
+        if(arm_start() > 0)
+          robotic_arm_selected = 1;
 
         // Set ARM led
         sprintf(buffer, "echo 1 > /sys/class/gpio/gpio%i/value", LED_ARM);
@@ -651,8 +749,7 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
       {
         change_actuator_request = 0;
 
-        sprintf(buffer, "B/start");
-        printf("%s\t", buffer);
+        if(arm_start() > 0)
         robotic_arm_selected = 1;
 
         // Set ARM led
@@ -749,9 +846,8 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
       {
         change_actuator_request = 0;
 
-        sprintf(buffer, "B/start");
-        printf("%s\t", buffer);
-        robotic_arm_selected = 1;
+        if(arm_start() > 0)
+         robotic_arm_selected = 1;
 
         // Set ARM led
         sprintf(buffer, "echo 1 > /sys/class/gpio/gpio%i/value", LED_ARM);
@@ -792,9 +888,8 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
       {
         change_actuator_request = 0;
 
-        sprintf(buffer, "B/start");
-        printf("%s\t", buffer);
-        robotic_arm_selected = 1;
+        if(arm_start() > 0)
+          robotic_arm_selected = 1;
 
         // Set ARM led
         sprintf(buffer, "echo 1 > /sys/class/gpio/gpio%i/value", LED_ARM);
@@ -815,20 +910,17 @@ void arm_status_update(int socket, struct sockaddr_in *address, struct wwvi_js_e
   char buffer[256];
   int bytes_sent = -1;
   static unsigned char change_actuator_request = 0;
-  int joy_x, joy_y, joy_z;
+  static unsigned char link_button_pressed = 0;
 
-  // Change actuator
-  if(jse->button[3])
+  // Change actuator if press only the button 4
+  if(jse->button[3] && !jse->button[0] && !jse->button[1] && !jse->button[2])
     change_actuator_request = 1;
 
-  if((!jse->button[3]) && change_actuator_request)
+  if((!jse->button[3]) && change_actuator_request)  //button released
   {
     change_actuator_request = 0;
-
-    sprintf(buffer, "B/stop");
-    printf("%s\t", buffer);
     robotic_arm_selected = 0;
-
+ 	
     // Unset ARM led
     sprintf(buffer, "echo 0 > /sys/class/gpio/gpio%i/value", LED_ARM);
     if(system(buffer) < 0)
@@ -841,16 +933,8 @@ void arm_status_update(int socket, struct sockaddr_in *address, struct wwvi_js_e
       
   if(jse->button[0] || jse->button[1] || jse->button[2])
   {
-    joy_x = ((jse->stick_x*5000)/joy_max_value)+5000;
-    joy_y = ((jse->stick_y*5000)/joy_max_value)+5000;
-    joy_z = ((jse->stick_z*5000)/joy_max_value)+5000;
-
-    // Send joystick command
-    sprintf(buffer, "J/%i/%i/%i/B/5/%i/%i/%i/%i/%i", joy_x, joy_y, joy_z, 
-                                                  jse->button[0]*128, jse->button[1]*128, jse->button[2]*128, jse->button[3]*128, jse->button[4]*128);
-    
-    //printf("%s\n", buffer);
-    bytes_sent = arm_load_tx(buffer, strlen(buffer));
+    bytes_sent = arm_move(*jse, JOY_MAX_VALUE);
+	link_button_pressed = 1;
 
     if(bytes_sent < 0)
     {
@@ -858,145 +942,11 @@ void arm_status_update(int socket, struct sockaddr_in *address, struct wwvi_js_e
       perror("arm_load_tx");
     }  
   }
-}
-
-void segway_message_handle(struct udp_frame *frame, union segway_union *segway_status) 
-{
-  /*int fault_return = 0;
-  char fault_message[255];
- 
-  do
+  else if(!jse->button[0] && !jse->button[1] && !jse->button[2] && link_button_pressed) // link button release
   {
-    fault_return = segway_config_decode_arch_fault(segway_status->fault_status_word1, fault_message);
-	      
-    if(fault_return >= 0)
-    {
-      message_log("segway_config_fault:", fault_message);
-      printf("Fault: %s\n", fault_message);
-    }
-  } while(fault_return > 0);
-	    
-  do
-  {
-    fault_return = segway_config_decode_critical_fault(segway_status->fault_status_word1, fault_message);
-
-    if(fault_return >= 0)
-    {
-      message_log("segway_config_fault:", fault_message);
-      printf("Fault: %s\n", fault_message);
-    }
-  } while(fault_return > 0);
-
-  do
-  {
-    fault_return = segway_config_decode_comm_fault(segway_status->fault_status_word2, fault_message);
-
-    if(fault_return >= 0)
-    {
-      message_log("segway_config_fault:", fault_message);
-      printf("Fault: %s\n", fault_message);
-    }
-  } while(fault_return > 0);
-
-  do
-  {
-    fault_return = segway_config_decode_internal_fault(segway_status->fault_status_word2, fault_message);
-
-    if(fault_return >= 0)
-    {
-      message_log("segway_config_fault:", fault_message);
-      printf("Fault: %s\n", fault_message);
-    }
-  } while(fault_return > 0);
-
-  do
-  {
-    fault_return = segway_config_decode_sensors_fault(segway_status->fault_status_word3, fault_message);
-
-    if(fault_return >= 0)
-    {
-      message_log("segway_config_fault:", fault_message);
-      printf("Fault: %s\n", fault_message);
-    }
-  } while(fault_return > 0);
-
-  do
-  {
-    fault_return = segway_config_decode_bsa_fault(segway_status->fault_status_word3, fault_message);
-
-    if(fault_return >= 0)
-    {
-      message_log("segway_config_fault:", fault_message);
-      printf("Fault: %s\n", fault_message);
-    }
-  } while(fault_return > 0);
-
-  do
-  {
-    fault_return = segway_config_decode_mcu_fault(segway_status->fault_status_word4, fault_message);
-
-    if(fault_return >= 0)
-    {
-      message_log("segway_config_fault:", fault_message);
-      printf("Fault: %s\n", fault_message);
-    }
-  } while(fault_return > 0);
-
-  do
-  {
-    fault_return = segway_config_decode_mcu_message(segway_status->mcu_0_fault_status, fault_message);
-
-    if(fault_return >= 0)
-    {
-      message_log("segway mcu0", fault_message);
-      printf("segway mcu0: %s\n", fault_message);
-    }
-  } while(fault_return > 0);
-
-  do
-  {
-    fault_return = segway_config_decode_mcu_message(segway_status->mcu_1_fault_status, fault_message);
-
-    if(fault_return >= 0)
-    {
-      message_log("segway mcu1", fault_message);
-      printf("segway mcu1: %s\n", fault_message);
-    }
-  } while(fault_return > 0);
-
-  do
-  {
-    fault_return = segway_config_decode_mcu_message(segway_status->mcu_2_fault_status, fault_message);
-
-    if(fault_return >= 0)
-    {
-      message_log("segway mcu2", fault_message);
-      printf("segway mcu2: %s\n", fault_message);
-    }
-  } while(fault_return > 0);
-
-  do
-  {
-    fault_return = segway_config_decode_mcu_message(segway_status->mcu_3_fault_status, fault_message);
-
-    if(fault_return >= 0)
-    {
-      message_log("segway mcu3", fault_message);
-      printf("segway mcu3: %s\n", fault_message);
-    }
-  } while(fault_return > 0);*/
-  //printf("Operational state: %08lx\n", segway_status->list.operational_state);
-  //printf("Linear velocity: %08lx\n", segway_status->linear_vel_mps);
-  //printf("Linear position: %08lx\n", segway_status->linear_pos_m);
-  //printf("Front Batt1 SOC: %08lx\n", segway_status->list.front_base_batt_1_soc);
-  //printf("Front Batt2 SOC: %08lx\n", segway_status->list.front_base_batt_2_soc);
-  //printf("Rear Batt1 SOC: %08lx\n", segway_status->list.rear_base_batt_1_soc);
-  //printf("Rear Batt2 SOC: %08lx\n", segway_status->list.rear_base_batt_2_soc);
-  //printf("Front Batt1 Temp: %08lx\n", segway_status->front_base_batt_1_temp_degC);
-  //printf("Front Batt2 Temp: %08lx\n", segway_status->front_base_batt_2_temp_degC);
-  //printf("Rear Batt1 Temp: %08lx\n", segway_status->rear_base_batt_1_temp_degC);
-  //printf("Rear Batt2 Temp: %08lx\n", segway_status->rear_base_batt_2_temp_degC);
-
+    if(arm_stop() > 0)
+      link_button_pressed = 0;
+  }
 }
 
 void message_log(const char *scope, const char *message) {
