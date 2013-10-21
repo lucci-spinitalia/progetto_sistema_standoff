@@ -32,15 +32,27 @@
 #include "segway_udp_v2.h" 
 #include "socket_udp.h"
 #include "arm_udp.h"
+#include "gps_generate.h"
+
+//#define GPS_DEBUG
+//#define SHOW_ARM_STATE
+
+#define ACU_ADDRESS "192.168.1.28"
+#define ACU_STATUS_PORT 8016
+
+#ifdef GPS_DEBUG
+#define ACU_GPS_PORT 8017
+#endif
 
 #define CCU_ADDRESS "192.168.1.102"
-#define CCU_PORT 
+#define CCU_PORT_SEGWAY 8003
+#define CCU_PORT_ARM 8000
 #define SEGWAY_ADDRESS "192.168.1.40"
 #define SEGWAY_PORT 55
 #define ARM_ADDRESS "192.168.1.28"
 #define ARM_PORT 8012
-#define ARM_PRESCALER 2
-#define JOY_PORT 8013
+#define JOY_ARM_PORT 8013
+#define JOY_STATUS_PORT 8014
 #define JOY_LOCAL_NAME "/dev/input/js0"
 #define JOY_MAX_VALUE 32767 
 #define LED_READY 117
@@ -50,18 +62,66 @@
 #define TIMEOUT_SEC 0 
 #define TIMEOUT_USEC 100000
 #define TIMEOUT_ARM_USEC 10000
+#define TIMEOUT_USEC_STATUS 500000
 #define LOG_FILE "/var/log/stdof_log.txt"
+
+// ACU status
+#define ACU_IDLE 0
+#define ACU_HOME 1
+#define ACU_ARM_HOMING 2
+#define ACU_ARM_AUTO_MOVE 3
+#define ACU_RETURN_TO_BASE 4
+#define ACU_RETURN_TO_BASE_ABORT 5
+#define ACU_ARM_AUTO_MOVE_ABORT 6
+#define ACU_UNKNOWN 7
+
+// Joystick command
+#define JOYSTICK_NONE 0
+#define JOYSTICK_REQUEST_HOMING 1
+#define JOYSTICK_REQUEST_DINAMIC 2
+#define JOYSTICK_ABORT_AUTO_MOVE 3
+#define JOYSTICK_REQUEST_BOX 4
+#define JOYSTICK_REQUEST_PARK 5
+#define JOYSTICK_REQUEST_STEP 6
+
+#define ARM_IDLE 0
+#define ARM_MOVE 1
+#define ARM_STOP 2
+#define ARM_HOMING_REQUEST 3
+#define ARM_AUTO_MOVE 4
+#define ARM_AUTO_MOVE_ABORT 5
+#define ARM_DINAMIC_REQUEST 6
+#define ARM_REST 7
+#define ARM_BOX_REQUEST 8
+#define ARM_PARK_REQUEST 9
+#define ARM_STEP_REQUEST 10
+#define ARM_STEP 11
 
 /* Macro */
 #undef max 
 #define max(x,y) ((x) > (y) ? (x) : (y))
-  
+#define min(x,y) ((x) < (y) ? (x) : (y))
+
 /* Robotic Arm */
 unsigned char robotic_arm_selected = 0;
+unsigned char step_request = 0;
+
+/* Gps */
+#ifdef GPS_DEBUG
+  char gps_buffer[2048];
+  int gps_timeout = 0;
+  unsigned char gps_write_flag = 0;
+  int socket_gps = -1;
+  struct sockaddr_in gps_address;
+#endif
+  
+/* Automatic Control Unit */
+unsigned char status_acu = -1;
   
 /* Prototype */
 int monitor_input_devices(struct udev_monitor *, const char *, int *); 
 void segway_status_update(union segway_union *, int, struct sockaddr_in *,  struct wwvi_js_event *, long int);
+void arm_step_position(int socket_status, struct sockaddr_in *address, struct wwvi_js_event *jse, long int joy_max_value);
 void arm_status_update(int socket, struct sockaddr_in *address, struct wwvi_js_event *jse, long int joy_max_value) ;
 void message_log(const char *, const char *); 
 int copy_log_file(void);
@@ -87,14 +147,34 @@ int main()
   union segway_union segway_status;
   unsigned char segway_prescaler_timeout = 0;
   unsigned char segway_check = 0;
-  unsigned char segway_down = 0;
+  unsigned char segway_down = 1;
 
+  struct timespec segway_timer_start, segway_timer_stop;
+  long segway_elapsed_time = 0;
+  unsigned char segway_timer = 0;
+
+  /* CCU interface */
+  int socket_ccu = -1;
+  struct sockaddr_in socket_ccu_addr_dest;
+  struct sockaddr_in socket_ccu_addr_src;
+  __u8 ccu_buffer[(SEGWAY_PARAM*4) + 3];
+  int bytes_sent;
+  
   /* Robotic Arm */
   int socket_arm = -1;
   struct sockaddr_in arm_address;
   struct arm_frame arm_buffer_temp;
-  int arm_prescaler_count = 0;
+  unsigned char arm_request_index;
+  char *arm_token_result;
 
+  /* Status client interface*/
+  int socket_status = -1;
+  struct sockaddr_in socket_status_addr_dest;
+  struct sockaddr_in socket_status_addr_src;
+  unsigned char status_buffer = -1;
+  unsigned char acu_check = 0;
+  unsigned char acu_down = 1;
+  
   /* Generic Variable */
   int done = 0; // for the while in main loop
   int bytes_read; // to check how many bytes has been read
@@ -103,7 +183,9 @@ int main()
   int nfds = 0; // fd to pass to select()
   fd_set rd, wr, er; // structure for select()
   struct timeval select_timeout;
-
+  long current_timeout;
+  long time = 0;
+  
   message_log("stdof", "Initializing stdof. . .");
   printf("Initializing stdof. . .\n");
 
@@ -149,23 +231,49 @@ int main()
     message_log("init segway client", strerror(errno));
     perror("init segway client");
   }
+  else
+    segway_status.list.operational_state = UNKNOWN;
 
+  /* Init CCU Client */
+  socket_ccu = socket(AF_INET, SOCK_DGRAM, 0);
+
+  if(socket_ccu < 0)
+    perror("socket_ccu");
+	  
+  // Init source  
+  bzero(&socket_ccu_addr_src, sizeof(socket_ccu_addr_src));
+  socket_ccu_addr_src.sin_family = AF_INET;
+  socket_ccu_addr_src.sin_port = htons(CCU_PORT_SEGWAY);
+  socket_ccu_addr_src.sin_addr.s_addr = htonl(INADDR_ANY);
+
+  if(bind(socket_ccu, (struct sockaddr *)&socket_ccu_addr_src, sizeof(socket_ccu_addr_src)) == -1)
+    perror("socket_ccu");
+
+  bzero(&socket_ccu_addr_dest, sizeof(socket_ccu_addr_dest));
+  socket_ccu_addr_dest.sin_family = AF_INET;
+  socket_ccu_addr_dest.sin_addr.s_addr = inet_addr(CCU_ADDRESS);
+  socket_ccu_addr_dest.sin_port = htons(CCU_PORT_SEGWAY);
+  
+  
   /* Init Arm Client */  
-  if(arm_open(&socket_arm, &arm_address, JOY_PORT, ARM_ADDRESS, ARM_PORT) == -1)
+  if(arm_open(&socket_arm, &arm_address, JOY_ARM_PORT, ARM_ADDRESS, ARM_PORT) == -1)
   {
     message_log("init arm client", strerror(errno));
     perror("init arm client");
   }
   else
   {
-    if(arm_init(0, 1000, 10, 2000, 400, 200000, 500) < 0)
-	{
-	  socket_arm = -1;
+    if(arm_init(0, 1000, 10, 32767, 2000, 1500, 100, 500, 500) < 0)
+    {
+      socket_arm = -1;
       message_log("init arm", strerror(errno));
       perror("init arm");	  
-	} 
+    }
+   
+    //int arm_init(int index, long kp, long ki, long kd, long kv, long adt, long vt, long amps)
+    arm_init(2, 20000, 10, 1500, 35000, 1500, 100, 500, 1023);
   }
-
+  
   /* Init Joystick */
   memset(&jse, 0, sizeof(struct wwvi_js_event));
   joy_local = open_joystick(JOY_LOCAL_NAME);
@@ -201,6 +309,39 @@ int main()
     printf("Init udev\t[OK]\n");
   }
 
+  /* Status client interface */
+  socket_status = socket(AF_INET, SOCK_DGRAM, 0);
+
+  if(socket_status < 0)
+    perror("socket_status");
+ 
+  bzero(&socket_status_addr_src, sizeof(socket_status_addr_src));
+  socket_status_addr_src.sin_family = AF_INET;
+  socket_status_addr_src.sin_port = htons(JOY_STATUS_PORT);
+  socket_status_addr_src.sin_addr.s_addr = htonl(INADDR_ANY);
+
+  if(bind(socket_status, (struct sockaddr *)&socket_status_addr_src, sizeof(socket_status_addr_src)) == -1)
+    perror("socket_status");
+
+  bzero(&socket_status_addr_dest, sizeof(socket_status_addr_dest));
+  socket_status_addr_dest.sin_family = AF_INET;
+  socket_status_addr_dest.sin_addr.s_addr = inet_addr(ACU_ADDRESS);
+  socket_status_addr_dest.sin_port = htons(ACU_STATUS_PORT);
+  
+  /* Gps */
+#ifdef GPS_DEBUG
+  gps_generate_init(3, 3, 5000.0, 3600.0, 0.0, 10.86, 0.0, 2, 2);
+  socket_gps = socket(AF_INET, SOCK_DGRAM, 0);
+
+  if(socket_status < 0)
+    perror("socket_status");
+
+  bzero(&gps_address, sizeof(gps_address));
+  gps_address.sin_family = AF_INET;
+  gps_address.sin_addr.s_addr = inet_addr(ACU_ADDRESS);
+  gps_address.sin_port = htons(ACU_GPS_PORT);
+#endif
+  
   // The segway requirements state that the minimum update frequency have to be 0.5Hz, so
   // the timeout on udev have to be < 2 secs.
   if(robotic_arm_selected == 0)
@@ -214,6 +355,8 @@ int main()
     select_timeout.tv_usec = TIMEOUT_ARM_USEC;
   }
   
+  current_timeout = select_timeout.tv_usec;
+      
   message_log("stdof", "Run main program. . .");
   printf("Run main program. . .\n");
   
@@ -225,34 +368,10 @@ int main()
     FD_ZERO(&wr);
     FD_ZERO(&er);
 
-    if((socket_segway > 0) && (robotic_arm_selected == 0))
+    if(socket_status > 0)
     {
-      FD_SET(socket_segway, &rd);
-      nfds = max(nfds, socket_segway);
-	  
-	  if(segway_buffer_tx_empty == 0)
-	  {
-	    FD_SET(socket_segway, &wr);
-        nfds = max(nfds, socket_segway);  
-	  }
-    }
-
-    if((socket_arm > 0) && (robotic_arm_selected))
-    {
-      FD_SET(socket_arm, &rd);
-      nfds = max(nfds, socket_arm);  
-	  
-	  if(arm_buffer_tx_empty == 0)
-	  {
-	    FD_SET(socket_arm, &wr);
-        nfds = max(nfds, socket_arm);  
-	  }
-    }
-
-    if(joy_local > 0)
-    {
-      FD_SET(joy_local, &rd);
-      nfds = max(nfds, joy_local);
+      FD_SET(socket_status, &rd);
+      nfds = max(nfds, socket_status);
     }
 
     if(udev_fd > 0)
@@ -260,7 +379,76 @@ int main()
       FD_SET(udev_fd, &rd);
       nfds = max(nfds, udev_fd);
     }
+    
+#ifdef GPS_DEBUG
+    if((socket_gps > 0) && gps_write_flag)
+    {
+      FD_SET(socket_gps, &wr);
+      nfds = max(nfds, socket_gps);
+    }
+#endif
 
+    switch(status_acu)
+    {
+      case ACU_HOME:
+      case ACU_IDLE:
+        // can perform all task
+        if((socket_segway > 0) && (robotic_arm_selected == 0))
+        {
+          FD_SET(socket_segway, &rd);
+          nfds = max(nfds, socket_segway);
+          
+          if(segway_buffer_tx_empty == 0)
+          {
+            FD_SET(socket_segway, &wr);
+            nfds = max(nfds, socket_segway);  
+          }
+        }
+
+        if((socket_arm > 0) && (robotic_arm_selected))
+        {
+          FD_SET(socket_arm, &rd);
+          nfds = max(nfds, socket_arm);  
+	  
+          if(arm_buffer_tx_empty == 0)
+          {
+            FD_SET(socket_arm, &wr);
+            nfds = max(nfds, socket_arm);  
+          }
+        }
+    
+        if(joy_local > 0)
+        {
+          FD_SET(joy_local, &rd);
+          nfds = max(nfds, joy_local);
+        }
+        break;
+	      
+      case ACU_ARM_AUTO_MOVE:
+        // wait end
+        //send abort message by selecting an arm link
+        if(joy_local > 0)
+        {
+          FD_SET(joy_local, &rd);
+          nfds = max(nfds, joy_local);
+        }
+        break;
+	      
+      case ACU_RETURN_TO_BASE:
+        // send joystick command and wait the idle state
+        break;
+	    
+      default:
+        // status unknown. Waiting for status info from ACU
+        break;
+    }
+    
+    if(segway_timer == 0)
+    {
+      clock_gettime(CLOCK_REALTIME, &segway_timer_start);
+      segway_timer++;
+    }
+          
     select_result = select(nfds + 1, &rd, &wr, NULL, &select_timeout);
 
     if(select_result == -1 && errno == EAGAIN)
@@ -287,12 +475,49 @@ int main()
       }
     }
 
+    /* Manage ACU status */
+    if(socket_status > 0)
+    {
+      if(FD_ISSET(socket_status, &rd))
+      {
+        bytes_read = recvfrom(socket_status, &status_buffer, sizeof(status_buffer), 0, NULL, NULL);
+
+        if(bytes_read > 0)
+        {
+          status_acu = status_buffer;
+
+          acu_check = 0;
+
+          if(acu_down == 1)
+          {
+            acu_down = 0;
+
+            if(led_ready_value == 0)
+            {
+              led_ready_value = 1;
+              sprintf(led_buffer, "echo 1 > /sys/class/gpio/gpio%i/value", LED_READY);
+      
+              if(system(led_buffer) < 0)
+                perror("Set Ready led");
+            }
+          }
+        }
+        else
+        {
+          message_log("status_read", strerror(errno));
+          perror("status_read");
+        }
+
+        continue;
+      }
+    }
+    
     /* Manage segway message */
     if(socket_segway > 0)
     {
       if(FD_ISSET(socket_segway, &rd))
       {
-        bytes_read = segway_read(socket_segway, &segway_status, NULL);
+        bytes_read = segway_read(socket_segway, &segway_status, ccu_buffer);
 
         if(bytes_read <= 0)
         {
@@ -306,45 +531,51 @@ int main()
           if(segway_down == 1)
           {
             message_log("segway_init", "Segway Init\t[OK]\n");
-            printf("Segway Init\t[OK]");
+            printf("Segway Init\t[OK]\n");
         
             segway_configure_audio_command(socket_segway, &segway_address, 9);
             segway_down = 0;
           }
 
+          //printf("Max Vel %f               \n", convert_to_float(segway_status.list.vel_limit_mps));
+	  //printf("Max Turn Rate %f         \n", convert_to_float(segway_status.list.yaw_rate_limit_rps));
           //printf("Operational State: %i\n", segway_status.list.operational_state);
+          //printf("Linear Velocity: %f             \n", convert_to_float(segway_status.list.linear_vel_mps));
+          //printf("Yaw Rate. %f                    \n", convert_to_float(segway_status.list.inertial_z_rate_rps));
+	  //printf("\033[2A");
+          // Send info to ccu
+          if(socket_ccu_addr_dest.sin_port != htons(CCU_PORT_SEGWAY))
+            socket_ccu_addr_dest.sin_port = htons(CCU_PORT_SEGWAY);
+			
+          bytes_sent = sendto(socket_ccu, ccu_buffer, bytes_read, 0, (struct sockaddr *)&socket_ccu_addr_dest, sizeof(socket_ccu_addr_dest));
+		
+          if(bytes_sent < 0)
+            perror("sendto ccu");
         }
         continue;
       }
-	  
-	  if(FD_ISSET(socket_segway, &wr))
-	  {
-	    if(segway_send(socket_segway, &segway_address) < 0)
-	    {
-	  	  if(led_ready_value == 1)
-	      {
-	        led_ready_value = 0;
-            sprintf(led_buffer, "echo 0 > /sys/class/gpio/gpio%i/value", LED_READY);
       
-	        if(system(led_buffer) < 0)
-              perror("Set Ready led");
-          }
-	    }
-	    else
-	    {
-	  	  if(led_ready_value == 0)
-	      {
-	        led_ready_value = 1;
-            sprintf(led_buffer, "echo 1 > /sys/class/gpio/gpio%i/value", LED_READY);
+     if(FD_ISSET(socket_segway, &wr))
+      {
+        if(segway_timer > 0)
+        {
+          clock_gettime(CLOCK_REALTIME, &segway_timer_stop);
+          //debug_timer = 0;
       
-	        if(system(led_buffer) < 0)
-              perror("Set Ready led");
-          }
-	    }
-		
-		continue;
-	  }
-	  
+          segway_elapsed_time = (segway_timer_stop.tv_sec * 1000000000 + segway_timer_stop.tv_nsec) - (segway_timer_start.tv_sec * 1000000000 + segway_timer_start.tv_nsec);
+	}
+	
+	if(segway_elapsed_time > 10000000) // 10ms
+	{
+          if(segway_send(socket_segway, &segway_address) < 0)
+            perror("segway_send");
+
+          if(segway_timer > 0)
+            segway_timer = 0;
+        }
+
+        continue;
+      }
     }
 
     /* Manage arm message */
@@ -352,52 +583,84 @@ int main()
     {
       if(FD_ISSET(socket_arm, &rd))
       {
-	    // the message would be an information such position or warning
-		bytes_read = recvfrom(socket_arm, &arm_buffer_temp, sizeof(struct arm_frame), 0, NULL, NULL);
+        // the message would be an information such position or warning
+        bytes_read = recvfrom(socket_arm, &arm_buffer_temp, sizeof(struct arm_frame), 0, NULL, NULL);
 
         if(bytes_read <= 0)
         {
           message_log("arm_read", strerror(errno));
           perror("arm_read");
         }
-		else
-		{
-		  arm_link[query_link - 1].actual_position = atoi(arm_buffer_temp.frame);
-		  query_link = -1;
+        else
+        {
+          // Every message from arm must ends with \r
+          arm_token_result = strchr(arm_buffer_temp.param.arm_command, 13);
+			  
+          if(arm_token_result != NULL)
+          {
+            //printf("Received message from %i\n", query_link);
+            *arm_token_result = '\0';  // translate token in null character
+
+            if(query_link > -1)
+            {
+			  arm_request_index = query_link;
+              if(arm_link[arm_request_index - 1].request_actual_position == 1)
+              {
+                query_link = -1;
+                arm_link[arm_request_index - 1].request_actual_position = 0;
+                arm_link[arm_request_index - 1].actual_position = atol(arm_buffer_temp.param.arm_command);
+ 
+                if(socket_ccu_addr_dest.sin_port != htons(CCU_PORT_ARM))
+                  socket_ccu_addr_dest.sin_port = htons(CCU_PORT_ARM);
+  
+                bytes_read = sprintf((char *)ccu_buffer, "%i%ld ", (arm_request_index - 1), arm_link[arm_request_index - 1].actual_position);
+                bytes_sent = sendto(socket_ccu, ccu_buffer, bytes_read, 0, (struct sockaddr *)&socket_ccu_addr_dest, sizeof(socket_ccu_addr_dest));
+
+                if(bytes_sent < 0)
+                  perror("sendto ccu");
+              }
+              else if(arm_link[arm_request_index - 1].request_trajectory_status == 1)
+              {
+                query_link = -1;
+                arm_link[arm_request_index - 1].request_trajectory_status = 0;
+                arm_link[arm_request_index - 1].trajectory_status = atoi(arm_buffer_temp.param.arm_command);
+              }
+            }
+          }
 		}
 
         continue;
       }
-	  
-	  if(FD_ISSET(socket_arm, &wr))
+
+      if(FD_ISSET(socket_arm, &wr))
       {
-	    if(arm_send(socket_arm, &arm_address) < 0)
-		{
-	      if(led_ready_value == 1)
-	      {
-	        led_ready_value = 0;
+        if(arm_send(socket_arm, &arm_address) < 0)
+        {
+          if(led_ready_value == 1)
+          {
+            led_ready_value = 0;
             sprintf(led_buffer, "echo 0 > /sys/class/gpio/gpio%i/value", LED_READY);
-      
-	        if(system(led_buffer) < 0)
+       
+            if(system(led_buffer) < 0)
               perror("Set Ready led");
-          }		
-		}
-		else
-		{
-	      if(led_ready_value == 0)
-	      {
-	        led_ready_value = 1;
+          }
+        }
+        else
+        {
+          if(led_ready_value == 0)
+          {
+            led_ready_value = 1;
             sprintf(led_buffer, "echo 1 > /sys/class/gpio/gpio%i/value", LED_READY);
       
-	        if(system(led_buffer) < 0)
+            if(system(led_buffer) < 0)
               perror("Set Ready led");
-          }		
-		}
+          }
+        }
 
         continue;
       }
     }
-
+ 
     if(joy_local > 0)
     {
       if(FD_ISSET(joy_local, &rd))
@@ -409,21 +672,38 @@ int main()
           message_log("joystick", strerror(errno));
           perror("get_joystick_status");
         }  // end if(bytes_read <= 0)
-        else
-        {
+        //else
+        //{
           // update at the end of the while
-          continue;
-        }
+        //}
+        
+        continue;
       }//end if(joy_selected == null)
     }
+    
+#ifdef GPS_DEBUG 
+    if(socket_gps > 0)
+    {
+      if(FD_ISSET(socket_gps, &wr))
+      {
+        bytes_sent = sendto(socket_gps, gps_buffer, strlen(gps_buffer), 0, (struct sockaddr *)&gps_address, sizeof(gps_address));
 
+        if(bytes_sent < 0)
+          perror("sendto gps");
+        else
+          gps_write_flag = 0;
+
+        continue;
+      }
+    }
+#endif
+
+    // searching for the segway and send joystick command to it
     if(robotic_arm_selected == 0)
     {
       // Try to communicate with segway. If it is on tractor mode then I send the joystick
       // command 
-      if(segway_prescaler_timeout < 50)
-        segway_prescaler_timeout++;
-      else
+      if(segway_prescaler_timeout >= 1)
       {
         segway_prescaler_timeout = 0;
 
@@ -452,27 +732,73 @@ int main()
           segway_down = 1;
         }
       }
+      else
+        segway_prescaler_timeout++;
 
-      segway_status_update(&segway_status, socket_segway, &segway_address, &jse, JOY_MAX_VALUE);
-      //printf("X: %d\tY: %d\tZ: %d\nbutton1: %d\tbutton2: %d\nbutton3: %d\tbutton4: %d\nbutton5: %d\n", 
-      //        jse.stick_x, jse.stick_y, jse.stick_z, jse.button[0], jse.button[1], jse.button[2], jse.button[3], jse.button[4]);
-      //printf("Y: %d\n", jse.stick_y);
-      //printf("Front Batt1 SOC: %f\n", convert_to_float(segway_status.list.front_base_batt_1_soc));
-      //printf("Front Batt2 SOC: %f\n", convert_to_float(segway_status.list.front_base_batt_2_soc));
-      //printf("Rear Batt1 SOC: %f\n", convert_to_float(segway_status.list.rear_base_batt_1_soc));
-      //printf("Rear Batt2 SOC: %f\n", convert_to_float(segway_status.list.rear_base_batt_2_soc));  
+      /*if(segway_prescaler_update > 4)
+      {
+	segway_prescaler_update = 0;*/
+        segway_status_update(&segway_status, socket_segway, &segway_address, &jse, JOY_MAX_VALUE);
+        //printf("Linear Velocity: %ld\n", segway_status.list.linear_vel_mps);
+        //printf("Yaw Rate. %ld\n", segway_status.list.inertial_z_rate_rps);
+        //printf("\033[2A");
+        //printf("X: %3d   \tY: %3d   \tZ: %3d   \nbutton1: %3d   \tbutton2: %3d   \nbutton3: %3d   \tbutton4: %3d   \nbutton5: %3d   \n", 
+        //        jse.stick_x, jse.stick_y, jse.stick_z, jse.button[0], jse.button[1], jse.button[2], jse.button[3], jse.button[4]);
+        //printf("Y: %d\n", jse.stick_y);
+        //printf("Front Batt1 SOC: %f\n", convert_to_float(segway_status.list.front_base_batt_1_soc));
+        //printf("Front Batt2 SOC: %f\n", convert_to_float(segway_status.list.front_base_batt_2_soc));
+        //printf("Rear Batt1 SOC: %f\n", convert_to_float(segway_status.list.rear_base_batt_1_soc));
+        //printf("Rear Batt2 SOC: %f\n", convert_to_float(segway_status.list.rear_base_batt_2_soc));
+        //printf("\033[8A");
+      /*}
+      else
+        segway_prescaler_update++;*/
+      
+      //if(segway_send(socket_segway, &segway_address) < 0)
+      //  perror("segway_send");
     }
     else
     {
-	  if(arm_prescaler_count >= ARM_PRESCALER)
-	  {
-	    arm_prescaler_count = 0;
-        arm_status_update(socket_arm, &arm_address, &jse, JOY_MAX_VALUE);
-	  }
-      else
-	    arm_prescaler_count++;
+      if(step_request)
+	    arm_step_position(socket_status, &socket_status_addr_dest, &jse, JOY_MAX_VALUE);
+	  else
+        arm_status_update(socket_status, &socket_status_addr_dest, &jse, JOY_MAX_VALUE);
     }
-	
+    time++;
+    if((time * current_timeout) >= TIMEOUT_USEC_STATUS)
+    {
+      time = 0;
+      //send data to acc
+      //printf("Timeout on %ld of %ld\n", (time * current_timeout), TIMEOUT_USEC_STATUS);
+      status_buffer = JOYSTICK_NONE;
+      
+      if(socket_status > 0)
+      {
+        bytes_sent = sendto(socket_status, &status_buffer, sizeof(status_buffer), 0, (struct sockaddr *)&socket_status_addr_dest, sizeof(socket_status_addr_dest));
+      
+        if(bytes_sent < 0)
+          perror("sendto ACU on timeout");
+
+      }
+      
+      acu_check++;
+      if(acu_check >= 4)
+      {
+        acu_check = 5;
+        acu_down = 1;
+          
+        // Unset led READY
+        if(led_ready_value == 1)
+        {
+          led_ready_value = 0;
+          sprintf(led_buffer, "echo 0 > /sys/class/gpio/gpio%i/value", LED_READY);
+      
+          if(system(led_buffer) < 0)
+            perror("Set Ready led");
+        }
+      }
+    }
+    
     // The segway requirements state that the minimum update frequency have to be 0.5Hz, so
     // the timeout on udev have to be < 2 secs.
     if(robotic_arm_selected == 0)
@@ -485,7 +811,8 @@ int main()
       select_timeout.tv_sec = TIMEOUT_SEC;
       select_timeout.tv_usec = TIMEOUT_ARM_USEC;
     }
-	 
+
+    current_timeout = select_timeout.tv_usec;
   }  // end while(!= done)
 
   return 0;
@@ -589,7 +916,7 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
 {
   static int segway_previouse_state = 0;
   static unsigned char change_actuator_request = 0;
-
+ 
   char buffer[256];
   int bytes_sent = -1;
 
@@ -623,16 +950,9 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
       {
         change_actuator_request = 0;
 
-		if(arm_start() > 0)
+        if(arm_start() > 0)
           robotic_arm_selected = 1;
 
-        // Set ARM led
-        sprintf(buffer, "echo 1 > /sys/class/gpio/gpio%i/value", LED_ARM);
-        if(system(buffer) < 0)
-          perror("Set Arm led");
-
-        message_log("stdof", "Pass to robotic arm");
-        printf("Pass to robotic arm\n");
         break;
       }
 
@@ -668,13 +988,6 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
         if(arm_start() > 0)
           robotic_arm_selected = 1;
 
-        // Set ARM led
-        sprintf(buffer, "echo 1 > /sys/class/gpio/gpio%i/value", LED_ARM);
-        if(system(buffer) < 0)
-          perror("Set Arm led");
-
-        message_log("stdof", "Pass to robotic arm");
-        printf("Pass to robotic arm\n");
         break;
       }
 
@@ -710,13 +1023,6 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
         if(arm_start() > 0)
           robotic_arm_selected = 1;
 
-        // Set ARM led
-        sprintf(buffer, "echo 1 > /sys/class/gpio/gpio%i/value", LED_ARM);
-        if(system(buffer) < 0)
-          perror("Set Arm led");
-
-        message_log("stdof", "Pass to robotic arm");
-        printf("Pass to robotic arm\n");
         break;
       }
 
@@ -750,15 +1056,8 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
         change_actuator_request = 0;
 
         if(arm_start() > 0)
-        robotic_arm_selected = 1;
+          robotic_arm_selected = 1;
 
-        // Set ARM led
-        sprintf(buffer, "echo 1 > /sys/class/gpio/gpio%i/value", LED_ARM);
-        if(system(buffer) < 0)
-          perror("Set Arm led");
-
-        message_log("stdof", "Pass to robotic arm");
-        printf("Pass to robotic arm\n");
         break;
       }
  
@@ -774,6 +1073,17 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
 
         break;
       }
+      
+#ifdef GPS_DEBUG
+      gps_timeout++;
+      
+      if(gps_timeout > (1000000 / TIMEOUT_USEC)) // 1s
+      {
+        gps_timeout = 0;
+        gps_write_flag = 1;
+        gps_generate(convert_to_float(segway_status->list.linear_vel_mps) * 3.6, convert_to_float(segway_status->list.inertial_z_rate_rps), TIMEOUT_USEC, gps_buffer);
+      }
+#endif
       break;
 
     case SEGWAY_TRACTOR:
@@ -795,7 +1105,7 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
         segway_previouse_state = segway_status->list.operational_state;
       }
 
-      if(jse->button[1])
+      if(jse->button[1] && (step_request == 0))
       {
         bytes_sent = segway_configure_operational_mode(socket, segway_address, SEGWAY_STANDBY_REQ);
 
@@ -807,16 +1117,45 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
         break;
       } 
       
+      // Change actuator and move it into step position
+      if(jse->button[2])
+        change_actuator_request = 1;
+
+      if((!jse->button[2]) && change_actuator_request)
+      {
+        change_actuator_request = 0;
+
+        if(arm_start() > 0)
+        {
+          robotic_arm_selected = 1;
+		  step_request = 1;
+        }
+
+        break;
+      }
+	  
       if(jse->button[4])
         bytes_sent = segway_motion_set(socket, segway_address, jse->stick_y, jse->stick_x, joy_max_value);
       else
         bytes_sent = segway_motion_set(socket, segway_address, 0, 0, joy_max_value);
-	      
+     
       if(bytes_sent < 0)
       {
         message_log("segway_motion_set", strerror(errno));
         perror("segway_motion_set");
       }
+      
+#ifdef GPS_DEBUG
+      gps_timeout++;
+      
+      if(gps_timeout > (1000000 / TIMEOUT_USEC)) // 1s
+      {
+        gps_timeout = 0;
+        gps_write_flag = 1; 
+        //printf("Velocity: %f Yaw: %f\n", convert_to_float(segway_status->list.linear_vel_mps), convert_to_float(segway_status->list.inertial_z_rate_rps));
+        gps_generate(convert_to_float(segway_status->list.linear_vel_mps) * 3.6, convert_to_float(segway_status->list.inertial_z_rate_rps), TIMEOUT_USEC, gps_buffer);
+      }
+#endif
       break;
 
     case DISABLE_POWER:
@@ -849,13 +1188,6 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
         if(arm_start() > 0)
          robotic_arm_selected = 1;
 
-        // Set ARM led
-        sprintf(buffer, "echo 1 > /sys/class/gpio/gpio%i/value", LED_ARM);
-        if(system(buffer) < 0)
-          perror("Set Arm led");
-
-        message_log("stdof", "Pass to robotic arm");
-        printf("Pass to robotic arm\n");
         break;
       }
 
@@ -879,6 +1211,7 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
 
         segway_previouse_state = segway_status->list.operational_state;
       }
+      
 
       // Change actuator
       if(jse->button[3])
@@ -890,14 +1223,6 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
 
         if(arm_start() > 0)
           robotic_arm_selected = 1;
-
-        // Set ARM led
-        sprintf(buffer, "echo 1 > /sys/class/gpio/gpio%i/value", LED_ARM);
-        if(system(buffer) < 0)
-          perror("Set Arm led");
-
-        message_log("stdof", "Pass to robotic arm");
-        printf("Pass to robotic arm\n");
         break;
       }
 
@@ -905,47 +1230,501 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
   } //end switch
 }
 
-void arm_status_update(int socket, struct sockaddr_in *address, struct wwvi_js_event *jse, long int joy_max_value) 
+void arm_step_position(int socket_status, struct sockaddr_in *address, struct wwvi_js_event *jse, long int joy_max_value)
 {
   char buffer[256];
+  char status_buffer;
   int bytes_sent = -1;
-  static unsigned char change_actuator_request = 0;
-  static unsigned char link_button_pressed = 0;
+  static unsigned char arm_state = ARM_STEP_REQUEST;  // arm's state
+  static unsigned char homing_requested = 0;
+  static unsigned char move_botton_request = 0;
+  static unsigned char arm_led = 0;
+  static unsigned char led_timer = 0;
+  
+  if(jse->button[0] || jse->button[1] || jse->button[2])
+    move_botton_request = 1;
+ 
+  if(!jse->button[0] && !jse->button[1] && !jse->button[2] && move_botton_request)
+  {
+    move_botton_request = 0;
+    
+    if(arm_state == ARM_AUTO_MOVE)
+    {
+#ifdef SHOW_ARM_STATE
+      printf("ARM_AUTO_MOVE_ABORT\n");
+#endif
+      arm_state = ARM_AUTO_MOVE_ABORT;
+    }
+  }
+  
+  switch(arm_state)
+  {
+    case ARM_IDLE:
+      break;
+   
+    case ARM_STEP:
+#ifdef SHOW_ARM_STATE
+	  printf("ARM_HOMING_REQUEST\n");
+#endif
+      arm_state = ARM_HOMING_REQUEST;
+      break;
 
+    case ARM_HOMING_REQUEST:
+      if(status_acu != ACU_ARM_HOMING)
+      {
+        // Send homing message to ACU
+        status_buffer = JOYSTICK_REQUEST_HOMING;
+      
+        if(socket_status > 0)
+        {
+          bytes_sent = sendto(socket_status, &status_buffer, sizeof(status_buffer), 0, (struct sockaddr *)address, sizeof(*address));
+      
+          if(bytes_sent < 0)
+            perror("sendto ACU on HOMING_REQUEST");
+          else
+            homing_requested = 1;
+        }
+      }
+      else
+      {
+#ifdef SHOW_ARM_STATE
+        printf("ARM_AUTO_MOVE\n");
+#endif
+        arm_state = ARM_AUTO_MOVE;
+      }
+      break;
+
+    case ARM_STEP_REQUEST:
+      if(status_acu != ACU_ARM_AUTO_MOVE)
+      {
+        // Send homing message to ACU
+        status_buffer = JOYSTICK_REQUEST_STEP;
+      
+        if(socket_status > 0)
+        {
+          bytes_sent = sendto(socket_status, &status_buffer, sizeof(status_buffer), 0, (struct sockaddr *)address, sizeof(*address));
+      
+          if(bytes_sent < 0)
+            perror("sendto ACU on STEP_REQUEST");
+          else
+            step_request = 1;
+        }
+      }
+      else
+      {
+#ifdef SHOW_ARM_STATE
+        printf("ARM_AUTO_MOVE\n");
+#endif
+        arm_state = ARM_AUTO_MOVE;
+      }
+      break;
+
+    case ARM_AUTO_MOVE_ABORT:
+      if(status_acu == ACU_ARM_AUTO_MOVE)
+      {
+        // Send homing abort message to ACU_ADDRESS
+        status_buffer = JOYSTICK_ABORT_AUTO_MOVE;
+       
+        if(socket_status > 0)
+        {
+          bytes_sent = sendto(socket_status, &status_buffer, sizeof(status_buffer), 0, (struct sockaddr *)address, sizeof(*address));
+      
+          if(bytes_sent < 0)
+            perror("sendto ACU on HOMING ABORT");
+        }
+        break;
+      }
+      // don't put break here
+    case ARM_AUTO_MOVE:
+      led_timer++;
+  
+      if((status_acu != ACU_ARM_AUTO_MOVE) && (status_acu != ACU_ARM_HOMING))
+      {
+        led_timer = 0;
+
+        if(homing_requested == 1)
+        {
+#ifdef SHOW_ARM_STATE
+          printf("ARM_STEP_REQUEST\n");
+#endif
+          arm_state = ARM_STEP_REQUEST;
+          homing_requested = 0;
+          robotic_arm_selected = 0;
+		  step_request = 0;
+
+          // Unset ARM led
+          sprintf(buffer, "echo 0 > /sys/class/gpio/gpio%i/value", LED_ARM);
+          if(system(buffer) < 0)
+            perror("Set Arm led");
+
+          message_log("stdof", "Pass to vehicle");
+          printf("Pass to vehicle\n");
+        }
+		else if(step_request == 1)
+        {
+#ifdef SHOW_ARM_STATE
+          printf("ARM_STEP\n");
+#endif
+		  arm_state = ARM_STEP;
+		  robotic_arm_selected = 0;
+		  
+          // Unset ARM led
+          sprintf(buffer, "echo 0 > /sys/class/gpio/gpio%i/value", LED_ARM);
+          if(system(buffer) < 0)
+            perror("Set Arm led");
+
+          message_log("stdof", "Pass to vehicle with arm in step position");
+          printf("Pass to vehicle with arm in step position\n");
+        }
+	  }
+	  else
+      {
+        if(led_timer >= 100) // for 10ms timeout led_timer = 1 s
+        {
+          led_timer = 0;
+          if(arm_led)
+            arm_led = 0;
+          else
+            arm_led = 1;
+
+          // Toggle ARM led
+          sprintf(buffer, "echo %i > /sys/class/gpio/gpio%i/value", arm_led, LED_ARM);
+          if(system(buffer) < 0)
+            perror("Set Arm led");
+         }
+      }
+      break;	  
+  }
+}
+
+void arm_status_update(int socket_status, struct sockaddr_in *address, struct wwvi_js_event *jse, long int joy_max_value) 
+{
+  char buffer[256];
+  char status_buffer;
+  int bytes_sent = -1;
+  static unsigned char arm_state = ARM_REST;  // arm's state
+  static unsigned char change_actuator_request = 0; // indicates when button has been released
+  static unsigned char move_botton_request = 0;
+  static unsigned char homing_requested = 0;
+  static unsigned char arm_led = 0;
+  static unsigned char led_timer = 0;
+  
   // Change actuator if press only the button 4
   if(jse->button[3] && !jse->button[0] && !jse->button[1] && !jse->button[2])
     change_actuator_request = 1;
 
   if((!jse->button[3]) && change_actuator_request)  //button released
   {
-    change_actuator_request = 0;
-    robotic_arm_selected = 0;
- 	
-    // Unset ARM led
-    sprintf(buffer, "echo 0 > /sys/class/gpio/gpio%i/value", LED_ARM);
-    if(system(buffer) < 0)
-      perror("Set Arm led");
-
-    message_log("stdof", "Pass to vehicle");
-    printf("Pass to vehicle\n");
-    return;
-  }
-      
-  if(jse->button[0] || jse->button[1] || jse->button[2])
-  {
-    bytes_sent = arm_move(*jse, JOY_MAX_VALUE);
-	link_button_pressed = 1;
-
-    if(bytes_sent < 0)
+    if(jse->stick_y > (JOY_MAX_VALUE - 5000))
     {
-      message_log("arm_load_tx", strerror(errno));
-      perror("arm_load_tx");
-    }  
+      arm_state = ARM_BOX_REQUEST;
+#ifdef SHOW_ARM_STATE
+      printf("ARM_BOX_REQUEST\n");
+#endif
+      change_actuator_request = 0;
+    }
+    else if(jse->stick_y < (-JOY_MAX_VALUE + 5000))
+    {
+      arm_state = ARM_PARK_REQUEST;
+#ifdef SHOW_ARM_STATE
+      printf("ARM_PARK_REQUEST\n");
+#endif
+      change_actuator_request = 0;
+    }
+    else
+    {
+      arm_state = ARM_HOMING_REQUEST;
+#ifdef SHOW_ARM_STATE
+      printf("ARM_HOMING_REQUEST\n");
+#endif
+      change_actuator_request = 0;
+    }
   }
-  else if(!jse->button[0] && !jse->button[1] && !jse->button[2] && link_button_pressed) // link button release
+  
+  if((jse->button[0] || jse->button[1] || jse->button[2]) && !change_actuator_request)
   {
-    if(arm_stop() > 0)
-      link_button_pressed = 0;
+    move_botton_request = 1;
+    
+    if(arm_state == ARM_IDLE)
+    {
+#ifdef SHOW_ARM_STATE
+      printf("ARM_MOVE\n");
+#endif
+      arm_start();
+      arm_state = ARM_MOVE;
+    }
+  }
+ 
+  if(!jse->button[0] && !jse->button[1] && !jse->button[2] && move_botton_request)
+  {
+    move_botton_request = 0;
+    
+    if(arm_state == ARM_AUTO_MOVE)
+    {
+#ifdef SHOW_ARM_STATE
+      printf("ARM_AUTO_MOVE_ABORT\n");
+#endif
+      arm_state = ARM_AUTO_MOVE_ABORT;
+    }
+    else if(arm_state == ARM_MOVE)
+    {
+#ifdef SHOW_ARM_STATE
+      printf("ARM_STOP\n");
+#endif
+      arm_state = ARM_STOP;
+    }
+  }
+  
+  switch(arm_state)
+  {
+    case ARM_IDLE:
+      break;
+   
+    case ARM_REST:
+#ifdef SHOW_ARM_STATE
+      printf("ARM_DINAMIC_REQUEST\n");
+#endif
+      arm_state = ARM_DINAMIC_REQUEST;
+      break;
+
+    case ARM_STEP:
+#ifdef SHOW_ARM_STATE
+	  printf("ARM_HOMING_REQUEST\n");
+#endif
+      arm_state = ARM_HOMING_REQUEST;
+      break;
+
+    case ARM_MOVE:
+      bytes_sent = arm_move(*jse, JOY_MAX_VALUE);
+       
+      if(bytes_sent < 0)
+      {
+        message_log("arm_load_tx", strerror(errno));
+        perror("arm_load_tx");
+      }
+      break;
+      
+    case ARM_STOP:
+      if(arm_stop(0))
+      {
+#ifdef SHOW_ARM_STATE
+        printf("ARM_IDLE\n");
+#endif
+        arm_state = ARM_IDLE;
+      }
+      break;
+      
+    case ARM_HOMING_REQUEST:
+      if(status_acu != ACU_ARM_HOMING)
+      {
+        // Send homing message to ACU
+        status_buffer = JOYSTICK_REQUEST_HOMING;
+      
+        if(socket_status > 0)
+        {
+          bytes_sent = sendto(socket_status, &status_buffer, sizeof(status_buffer), 0, (struct sockaddr *)address, sizeof(*address));
+      
+          if(bytes_sent < 0)
+            perror("sendto ACU on HOMING_REQUEST");
+          else
+            homing_requested = 1;
+        }
+      }
+      else
+      {
+#ifdef SHOW_ARM_STATE
+        printf("ARM_AUTO_MOVE\n");
+#endif
+        arm_state = ARM_AUTO_MOVE;
+      }
+      break;
+      
+      case ARM_DINAMIC_REQUEST:
+      if(status_acu != ACU_ARM_AUTO_MOVE)
+      {
+        // Send homing message to ACU
+        status_buffer = JOYSTICK_REQUEST_DINAMIC;
+      
+        if(socket_status > 0)
+        {
+          bytes_sent = sendto(socket_status, &status_buffer, sizeof(status_buffer), 0, (struct sockaddr *)address, sizeof(*address));
+      
+          if(bytes_sent < 0)
+            perror("sendto ACU on DINAMIC_REQUEST");
+        }
+      }
+      else
+      {
+#ifdef SHOW_ARM_STATE
+        printf("ARM_AUTO_MOVE\n");
+#endif
+        arm_state = ARM_AUTO_MOVE;
+      }
+	  break;
+
+    case ARM_BOX_REQUEST:
+      if(status_acu != ACU_ARM_AUTO_MOVE)
+      {
+        // Send homing message to ACU
+        status_buffer = JOYSTICK_REQUEST_BOX;
+      
+        if(socket_status > 0)
+        {
+          bytes_sent = sendto(socket_status, &status_buffer, sizeof(status_buffer), 0, (struct sockaddr *)address, sizeof(*address));
+      
+          if(bytes_sent < 0)
+            perror("sendto ACU on BOX_REQUEST");
+        }
+      }
+      else
+      {
+#ifdef SHOW_ARM_STATE
+        printf("ARM_AUTO_MOVE\n");
+#endif
+        arm_state = ARM_AUTO_MOVE;
+      }
+      break;
+  
+    case ARM_PARK_REQUEST:
+      if(status_acu != ACU_ARM_AUTO_MOVE)
+      {
+        // Send homing message to ACU
+        status_buffer = JOYSTICK_REQUEST_PARK;
+      
+        if(socket_status > 0)
+        {
+          bytes_sent = sendto(socket_status, &status_buffer, sizeof(status_buffer), 0, (struct sockaddr *)address, sizeof(*address));
+      
+          if(bytes_sent < 0)
+            perror("sendto ACU on PARK_REQUEST");
+        }
+      }
+      else
+      {
+#ifdef SHOW_ARM_STATE
+        printf("ARM_AUTO_MOVE\n");
+#endif
+        arm_state = ARM_AUTO_MOVE;
+      }
+      break;
+
+    case ARM_STEP_REQUEST:
+      if(status_acu != ACU_ARM_AUTO_MOVE)
+      {
+        // Send homing message to ACU
+        status_buffer = JOYSTICK_REQUEST_STEP;
+      
+        if(socket_status > 0)
+        {
+          bytes_sent = sendto(socket_status, &status_buffer, sizeof(status_buffer), 0, (struct sockaddr *)address, sizeof(*address));
+      
+          if(bytes_sent < 0)
+            perror("sendto ACU on STEP_REQUEST");
+          else
+            step_request = 1;
+        }
+      }
+      else
+      {
+#ifdef SHOW_ARM_STATE
+        printf("ARM_AUTO_MOVE\n");
+#endif
+        arm_state = ARM_AUTO_MOVE;
+      }
+      break;
+
+    case ARM_AUTO_MOVE_ABORT:
+      if(status_acu == ACU_ARM_AUTO_MOVE)
+      {
+        // Send homing abort message to ACU_ADDRESS
+        status_buffer = JOYSTICK_ABORT_AUTO_MOVE;
+       
+        if(socket_status > 0)
+        {
+          bytes_sent = sendto(socket_status, &status_buffer, sizeof(status_buffer), 0, (struct sockaddr *)address, sizeof(*address));
+      
+          if(bytes_sent < 0)
+            perror("sendto ACU on HOMING ABORT");
+        }
+        break;
+      }
+      // don't put break here
+    case ARM_AUTO_MOVE:
+      led_timer++;
+  
+      if((status_acu != ACU_ARM_AUTO_MOVE) && (status_acu != ACU_ARM_HOMING))
+      {
+        led_timer = 0;
+
+        if(homing_requested == 1)
+        {
+#ifdef SHOW_ARM_STATE
+          printf("ARM_REST\n");
+#endif
+          arm_state = ARM_REST;
+          homing_requested = 0;
+          robotic_arm_selected = 0;
+
+          // Unset ARM led
+          sprintf(buffer, "echo 0 > /sys/class/gpio/gpio%i/value", LED_ARM);
+          if(system(buffer) < 0)
+            perror("Set Arm led");
+
+          message_log("stdof", "Pass to vehicle");
+          printf("Pass to vehicle\n");
+        }
+		else if(step_request == 1)
+        {
+#ifdef SHOW_ARM_STATE
+          printf("ARM_STEP\n");
+#endif
+		  arm_state = ARM_STEP;
+		  step_request = 0;
+		  robotic_arm_selected = 0;
+		  
+          // Unset ARM led
+          sprintf(buffer, "echo 0 > /sys/class/gpio/gpio%i/value", LED_ARM);
+          if(system(buffer) < 0)
+            perror("Set Arm led");
+
+          message_log("stdof", "Pass to vehicle with arm in step position");
+          printf("Pass to vehicle with arm in step position\n");
+        }
+        else
+        {
+          // Set ARM led
+          sprintf(buffer, "echo 1 > /sys/class/gpio/gpio%i/value", LED_ARM);
+          if(system(buffer) < 0)
+            perror("Set Arm led");
+
+          message_log("stdof", "Pass to robotic arm");
+          printf("Pass to robotic arm\n");
+#ifdef SHOW_ARM_STATE
+          printf("ARM_IDLE\n");
+#endif
+          arm_state = ARM_IDLE;
+        }
+
+        return;
+      }
+      else
+      {
+        if(led_timer >= 100) // for 10ms timeout led_timer = 1 s
+        {
+          led_timer = 0;
+          if(arm_led)
+            arm_led = 0;
+          else
+            arm_led = 1;
+
+          // Toggle ARM led
+          sprintf(buffer, "echo %i > /sys/class/gpio/gpio%i/value", arm_led, LED_ARM);
+          if(system(buffer) < 0)
+            perror("Set Arm led");
+         }
+      }
+      break;
+      
   }
 }
 
