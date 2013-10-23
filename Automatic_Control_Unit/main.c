@@ -117,11 +117,15 @@ int main()
 
   /* Status client interface*/
   int socket_status = -1;
+  socklen_t socket_status_addr_dest_len = sizeof(struct sockaddr_in);
+  struct sockaddr_in socket_status_addr_dest_temp;
   struct sockaddr_in socket_status_addr_dest;
   struct sockaddr_in socket_status_addr_src;
   unsigned char status_buffer;
   unsigned char status_return;
-
+  char address_buffer[256];
+  char address_buffer_temp[256];
+  
   /* Gps */
 #ifdef GPS_DEBUG
   int socket_gps = -1;
@@ -369,8 +373,21 @@ int main()
     {
       if(FD_ISSET(socket_status, &rd))
       {
-        bytes_read = recvfrom(socket_status, &status_buffer, sizeof(status_buffer), 0, NULL, NULL);
+        bytes_read = recvfrom(socket_status, &status_buffer, sizeof(status_buffer), 0, (struct sockaddr *)&socket_status_addr_dest_temp, &socket_status_addr_dest_len);
 
+		if(strcmp(inet_ntop(AF_INET, &socket_status_addr_dest.sin_addr.s_addr, address_buffer, sizeof(address_buffer)), 
+                  inet_ntop(AF_INET, &socket_status_addr_dest_temp.sin_addr.s_addr, address_buffer_temp, sizeof(address_buffer_temp))) != 0)
+		{
+          // When arrive a command from another source, it can be forwarded only if the arm is in a safe state
+          if((status == ACU_HOME) || (status == ACU_IDLE))
+		  {
+		    printf("Message from other source: %s\n", address_buffer_temp);
+            memcpy(&socket_status_addr_dest, &socket_status_addr_dest_temp, sizeof(struct sockaddr));
+		  }
+          else
+		    continue;
+        }
+		
         if(bytes_read > 0)
         {
           timeout_return_to_base = 0;  // reset timer
