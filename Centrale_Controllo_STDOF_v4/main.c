@@ -39,6 +39,7 @@
 
 #define ACU_ADDRESS "192.168.1.28"
 #define ACU_STATUS_PORT 8016
+#define ACU_SEGWAY_PORT 8017
 
 #ifdef GPS_DEBUG
 #define ACU_GPS_PORT 8017
@@ -116,7 +117,7 @@ unsigned char step_request = 0;
 #endif
   
 /* Automatic Control Unit */
-unsigned char status_acu = -1;
+unsigned char status_acu = ACU_UNKNOWN;
   
 /* Prototype */
 int monitor_input_devices(struct udev_monitor *, const char *, int *); 
@@ -157,7 +158,9 @@ int main()
   int socket_ccu = -1;
   struct sockaddr_in socket_ccu_addr_dest;
   struct sockaddr_in socket_ccu_addr_src;
+  union segway_union ccu_segway_status;
   __u8 ccu_buffer[(SEGWAY_PARAM*4) + 3];
+  __u32 ccu_buffer_size = 0;
   int bytes_sent;
   
   /* Robotic Arm */
@@ -175,6 +178,10 @@ int main()
   unsigned char acu_check = 0;
   unsigned char acu_down = 1;
   
+  /* Segway info for Acu */
+  int socket_segway_acu = -1;
+  struct sockaddr_in socket_segway_acu_addr_dest;
+  
   /* Generic Variable */
   int done = 0; // for the while in main loop
   int bytes_read; // to check how many bytes has been read
@@ -186,7 +193,7 @@ int main()
   long current_timeout;
   long time = 0;
   
-  message_log("stdof", "Initializing stdof. . .");
+  //message_log("stdof", "Initializing stdof. . .");
   printf("Initializing stdof. . .\n");
 
   /* Peripheral initialization */
@@ -228,11 +235,14 @@ int main()
   /* Init Segway Client */  
   if(segway_open(&socket_segway, &segway_address, SEGWAY_ADDRESS, SEGWAY_PORT) == -1)
   {
-    message_log("init segway client", strerror(errno));
+    //message_log("init segway client", strerror(errno));
     perror("init segway client");
   }
   else
+  {
+    memset(&segway_status, 0, sizeof(segway_status));
     segway_status.list.operational_state = UNKNOWN;
+  }
 
   /* Init CCU Client */
   socket_ccu = socket(AF_INET, SOCK_DGRAM, 0);
@@ -258,7 +268,7 @@ int main()
   /* Init Arm Client */  
   if(arm_open(&socket_arm, &arm_address, JOY_ARM_PORT, ARM_ADDRESS, ARM_PORT) == -1)
   {
-    message_log("init arm client", strerror(errno));
+    //message_log("init arm client", strerror(errno));
     perror("init arm client");
   }
   else
@@ -266,7 +276,7 @@ int main()
     if(arm_init(0, 1000, 10, 32767, 2000, 1500, 100, 500, 500) < 0)
     {
       socket_arm = -1;
-      message_log("init arm", strerror(errno));
+      //message_log("init arm", strerror(errno));
       perror("init arm");	  
     }
    
@@ -280,12 +290,12 @@ int main()
 
   if(joy_local < 0)
   {
-    message_log("open_joystick(local)", strerror(errno));
+    //message_log("open_joystick(local)", strerror(errno));
     perror("open_joystick(local)");
   }
   else
   {
-    message_log("open_joystick", "Find Local Joystick\t[OK]");
+    //message_log("open_joystick", "Find Local Joystick\t[OK]");
     printf("Find Local Joystick\t[OK]\n");
   }
   
@@ -294,7 +304,7 @@ int main()
 
   if(!udev)
   {
-    message_log("udev_new", "Init udev\t[FAIL]");
+    //message_log("udev_new", "Init udev\t[FAIL]");
     printf("Can't create udev\n");
   }
   else
@@ -305,7 +315,7 @@ int main()
     udev_monitor_enable_receiving(udev_mon);
     udev_fd = udev_monitor_get_fd(udev_mon);
 
-    message_log("udev_new", "Init udev\t[OK]");
+    //message_log("udev_new", "Init udev\t[OK]");
     printf("Init udev\t[OK]\n");
   }
 
@@ -328,9 +338,28 @@ int main()
   socket_status_addr_dest.sin_addr.s_addr = inet_addr(ACU_ADDRESS);
   socket_status_addr_dest.sin_port = htons(ACU_STATUS_PORT);
   
+  /* Segway info for ACU interface */
+  socket_segway_acu = socket(AF_INET, SOCK_DGRAM, 0);
+
+  if(socket_segway_acu < 0)
+    perror("socket_segway_acu");
+ 
+  /*bzero(&socket_segway_acu_addr_src, sizeof(socket_segway_acu_addr_src));
+  socket_segway_acu_addr_src.sin_family = AF_INET;
+  socket_segway_acu_addr_src.sin_port = htons(ACU_SEGWAY_PORT);
+  socket_segway_acu_addr_src.sin_addr.s_addr = htonl(INADDR_ANY);
+
+  if(bind(socket_segway_acu, (struct sockaddr *)&socket_segway_acu_addr_src, sizeof(socket_segway_acu_addr_src)) == -1)
+    perror("bind socket_segway_acu");*/
+
+  bzero(&socket_segway_acu_addr_dest, sizeof(socket_segway_acu_addr_dest));
+  socket_segway_acu_addr_dest.sin_family = AF_INET;
+  socket_segway_acu_addr_dest.sin_addr.s_addr = inet_addr(ACU_ADDRESS);
+  socket_segway_acu_addr_dest.sin_port = htons(ACU_SEGWAY_PORT);
+  
   /* Gps */
 #ifdef GPS_DEBUG
-  gps_generate_init(3, 3, 5000.0, 3600.0, 0.0, 10.86, 0.0, 2, 2);
+  gps_generate_init(3, 3, 4140.7277, 1230.5320, 0.0, 10.86, 0.0, 2, 2, NULL);
   socket_gps = socket(AF_INET, SOCK_DGRAM, 0);
 
   if(socket_status < 0)
@@ -357,7 +386,7 @@ int main()
   
   current_timeout = select_timeout.tv_usec;
       
-  message_log("stdof", "Run main program. . .");
+  //message_log("stdof", "Run main program. . .");
   printf("Run main program. . .\n");
   
   while(!done)
@@ -459,7 +488,7 @@ int main()
 
     if(select_result == -1)
     {
-      message_log("stdof", strerror(errno));
+      //message_log("stdof", strerror(errno));
       perror("main:");
 
       return 1;
@@ -504,7 +533,7 @@ int main()
         }
         else
         {
-          message_log("status_read", strerror(errno));
+          //message_log("status_read", strerror(errno));
           perror("status_read");
         }
 
@@ -517,11 +546,11 @@ int main()
     {
       if(FD_ISSET(socket_segway, &rd))
       {
-        bytes_read = segway_read(socket_segway, &segway_status, ccu_buffer);
+        bytes_read = segway_read(socket_segway, &segway_status, NULL);
 
         if(bytes_read <= 0)
         {
-          message_log("segway_read", strerror(errno));
+          //message_log("segway_read", strerror(errno));
           perror("segway_read");
         }
         else
@@ -530,32 +559,48 @@ int main()
          
           if(segway_down == 1)
           {
-            message_log("segway_init", "Segway Init\t[OK]\n");
+            //message_log("segway_init", "Segway Init\t[OK]\n");
             printf("Segway Init\t[OK]\n");
         
-            segway_configure_audio_command(socket_segway, &segway_address, 9);
+            //segway_configure_audio_command(socket_segway, &segway_address, 9);
             segway_down = 0;
           }
 
           //printf("Max Vel %f               \n", convert_to_float(segway_status.list.vel_limit_mps));
-	  //printf("Max Turn Rate %f         \n", convert_to_float(segway_status.list.yaw_rate_limit_rps));
+          //printf("Max Turn Rate %f         \n", convert_to_float(segway_status.list.yaw_rate_limit_rps));
           //printf("Operational State: %i\n", segway_status.list.operational_state);
-          //printf("Linear Velocity: %f             \n", convert_to_float(segway_status.list.linear_vel_mps));
+          //printf("Linear Velocity: %f             \n", (float)convert_to_float(segway_status.list.linear_vel_mps));
           //printf("Yaw Rate. %f                    \n", convert_to_float(segway_status.list.inertial_z_rate_rps));
-	  //printf("\033[2A");
+          //printf("\033[2A");
           // Send info to ccu
+          
+          memcpy(&ccu_segway_status, &segway_status, sizeof(segway_status));
+
+          if((jse.stick_y < 1000) && (jse.stick_y > -1000))
+            ccu_segway_status.list.linear_vel_mps = 0;
+
+          if((jse.stick_x < 1000) && (jse.stick_x > -1000))
+            ccu_segway_status.list.inertial_z_rate_rps = 0;
+
+          segway_convert_param_message(ccu_segway_status, ccu_buffer, &ccu_buffer_size);
+
           if(socket_ccu_addr_dest.sin_port != htons(CCU_PORT_SEGWAY))
             socket_ccu_addr_dest.sin_port = htons(CCU_PORT_SEGWAY);
-			
-          bytes_sent = sendto(socket_ccu, ccu_buffer, bytes_read, 0, (struct sockaddr *)&socket_ccu_addr_dest, sizeof(socket_ccu_addr_dest));
-		
+
+          bytes_sent = sendto(socket_ccu, ccu_buffer, ccu_buffer_size, 0, (struct sockaddr *)&socket_ccu_addr_dest, sizeof(socket_ccu_addr_dest));
+  
+          if(bytes_sent < 0)
+            perror("sendto ccu");
+
+          bytes_sent = sendto(socket_segway_acu, ccu_buffer, ccu_buffer_size, 0, (struct sockaddr *)&socket_segway_acu_addr_dest, sizeof(socket_segway_acu_addr_dest));
+
           if(bytes_sent < 0)
             perror("sendto ccu");
         }
         continue;
       }
       
-     if(FD_ISSET(socket_segway, &wr))
+      if(FD_ISSET(socket_segway, &wr))
       {
         if(segway_timer > 0)
         {
@@ -563,10 +608,10 @@ int main()
           //debug_timer = 0;
       
           segway_elapsed_time = (segway_timer_stop.tv_sec * 1000000000 + segway_timer_stop.tv_nsec) - (segway_timer_start.tv_sec * 1000000000 + segway_timer_start.tv_nsec);
-	}
-	
-	if(segway_elapsed_time > 10000000) // 10ms
-	{
+        }
+
+        if(segway_elapsed_time > 10000000) // 10ms
+        {
           if(segway_send(socket_segway, &segway_address) < 0)
             perror("segway_send");
 
@@ -588,14 +633,14 @@ int main()
 
         if(bytes_read <= 0)
         {
-          message_log("arm_read", strerror(errno));
+          //message_log("arm_read", strerror(errno));
           perror("arm_read");
         }
         else
         {
           // Every message from arm must ends with \r
           arm_token_result = strchr(arm_buffer_temp.param.arm_command, 13);
-			  
+
           if(arm_token_result != NULL)
           {
             //printf("Received message from %i\n", query_link);
@@ -603,10 +648,12 @@ int main()
 
             if(query_link > -1)
             {
-			  arm_request_index = query_link;
+              arm_request_index = query_link;
+   
               if(arm_link[arm_request_index - 1].request_actual_position == 1)
               {
                 query_link = -1;
+                arm_link[arm_request_index - 1].request_timeout = 0;
                 arm_link[arm_request_index - 1].request_actual_position = 0;
                 arm_link[arm_request_index - 1].actual_position = atol(arm_buffer_temp.param.arm_command);
  
@@ -622,12 +669,13 @@ int main()
               else if(arm_link[arm_request_index - 1].request_trajectory_status == 1)
               {
                 query_link = -1;
+                arm_link[arm_request_index - 1].request_timeout = 0;
                 arm_link[arm_request_index - 1].request_trajectory_status = 0;
                 arm_link[arm_request_index - 1].trajectory_status = atoi(arm_buffer_temp.param.arm_command);
               }
             }
           }
-		}
+        }
 
         continue;
       }
@@ -669,7 +717,7 @@ int main()
 
         if(bytes_read <= 0)
         {
-          message_log("joystick", strerror(errno));
+          //message_log("joystick", strerror(errno));
           perror("get_joystick_status");
         }  // end if(bytes_read <= 0)
         //else
@@ -698,6 +746,18 @@ int main()
     }
 #endif
 
+#ifdef GPS_DEBUG
+      gps_timeout++;
+      
+      if(gps_timeout >= (1000000 / current_timeout)) // 1s
+      {
+        gps_generate((float)convert_to_float(segway_status.list.linear_vel_mps) * 3.6, 
+        convert_to_float(segway_status.list.inertial_z_rate_rps), gps_timeout * current_timeout, gps_buffer, NULL);
+        gps_timeout = 0;
+        gps_write_flag = 1;
+        //printf("Generate gps command %s\n", gps_buffer);
+      }
+#endif
     // searching for the segway and send joystick command to it
     if(robotic_arm_selected == 0)
     {
@@ -710,7 +770,8 @@ int main()
         if((segway_status.list.operational_state < 3) || (segway_status.list.operational_state > 5))
         {
           //printf("Segway Init. . .\n");
-          segway_init(socket_segway, &segway_address, &segway_status);
+          if(status_acu != ACU_UNKNOWN)
+            segway_init(socket_segway, &segway_address, &segway_status);
         }
         else
           segway_configure_none(socket_segway, &segway_address, 0x00);
@@ -724,7 +785,7 @@ int main()
           // Send warning only the first time
           if(segway_down == 0)
           {
-            message_log("stdof", "Segway down!");
+            //message_log("stdof", "Segway down!");
             printf("Segway down!\n");
             segway_status.list.operational_state = UNKNOWN;
           }
@@ -760,10 +821,11 @@ int main()
     else
     {
       if(step_request)
-	    arm_step_position(socket_status, &socket_status_addr_dest, &jse, JOY_MAX_VALUE);
-	  else
+        arm_step_position(socket_status, &socket_status_addr_dest, &jse, JOY_MAX_VALUE);
+      else
         arm_status_update(socket_status, &socket_status_addr_dest, &jse, JOY_MAX_VALUE);
     }
+    
     time++;
     if((time * current_timeout) >= TIMEOUT_USEC_STATUS)
     {
@@ -837,22 +899,22 @@ int monitor_input_devices(struct udev_monitor *udev_mon,
       if(!strcmp(udev_node, joystick_path))
       {
         if((!strcmp(udev_device_get_action(udev_dev),"add")) && (*joy_local < 0))
-	    {
-	      // add joystick
+        {
+          // add joystick
           *joy_local = open_joystick(joystick_path);
 
           if(*joy_local < 0)
             perror("open_joystick");
 
-          message_log("stdof", "Joystick added");
-	      printf("stdof: Joystick added\n");
-	    }
+          //message_log("stdof", "Joystick added");
+          printf("stdof: Joystick added\n");
+        }
         else if((!strcmp(udev_device_get_action(udev_dev),"remove")) && (*joy_local > 0))
         {
           // remove joystick
           *joy_local = -1;
 
-          message_log("stdof", "Joystick removed");
+          //message_log("stdof", "Joystick removed");
           printf("stdof: Joystick removed\n");
         }
       }
@@ -861,48 +923,48 @@ int monitor_input_devices(struct udev_monitor *udev_mon,
     {
       if(!strcmp(udev_device_get_action(udev_dev),"add"))
       {
-        message_log("stdof", "Find storage device");
+        //message_log("stdof", "Find storage device");
         printf("udev: Find storage device %s\n", udev_node);
 
         // mount usb device
         if(mount(udev_node, "/media/usb", "vfat", MS_NOATIME, NULL))
         {
-          message_log("mount", strerror(errno));
+          //message_log("mount", strerror(errno));
           perror("mount");
           return -1;
         }
         else
         {
-          message_log("mount", "Drive mounted");
+          //message_log("mount", "Drive mounted");
           printf("mount: Drive mounted\n");
         }
 
         if(copy_log_file() < 0)
         {
-          message_log("copy_log_file", strerror(errno));
+          //message_log("copy_log_file", strerror(errno));
           perror("copy_log_file");
         }
         else
         {
-          message_log("copy_log_file", "Log copied to usb device");
+          //message_log("copy_log_file", "Log copied to usb device");
           printf("copy_log_file: Log copied to usb device\n");
         }
 
         // unmount usb device
         if(umount("/media/usb") < 0)
         {
-          message_log("umount", strerror(errno));
+          //message_log("umount", strerror(errno));
           perror("umount");
         }
         else
         {
-          message_log("umount", "Drive unmounted");
+          //message_log("umount", "Drive unmounted");
           printf("mount: Drive unmounted\n");
         }
       }
       else if(!strcmp(udev_device_get_action(udev_dev),"remove"))
       {
-        message_log("stdof", "Storage device removed");
+        //message_log("stdof", "Storage device removed");
         printf("udev: Storage device %s removed\n", udev_node);
       }
     }
@@ -916,6 +978,7 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
 {
   static int segway_previouse_state = 0;
   static unsigned char change_actuator_request = 0;
+  static unsigned char change_mode_request = 0;
  
   char buffer[256];
   int bytes_sent = -1;
@@ -925,7 +988,7 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
     case CCU_INIT:
       if(segway_previouse_state != segway_status->list.operational_state)
       {
-        message_log("stdof", "Segway CCU Init");
+        //message_log("stdof", "Segway CCU Init");
         printf("Segway CCU Init\n");
 
         // Unset RUN led
@@ -961,7 +1024,7 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
     case PROPULSION_INIT:
       if(segway_previouse_state != segway_status->list.operational_state)
       {
-        message_log("stdof", "Segway Propulsion Init");
+        //message_log("stdof", "Segway Propulsion Init");
         printf("Segway Propulsion Init\n");
 
         // Unset RUN led
@@ -996,7 +1059,7 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
     case CHECK_STARTUP:
       if(segway_previouse_state != segway_status->list.operational_state)
       {
-        message_log("stdof", "Segway Check Startup Issue");
+        //message_log("stdof", "Segway Check Startup Issue");
         printf("Segway Check Startup Issue\n");
 
         // Unset RUN led
@@ -1028,10 +1091,10 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
 
       break;
 
-    case SEGWAY_STANDBY: //standby mode
+    case SEGWAY_STANDBY: //standby 
       if(segway_previouse_state != segway_status->list.operational_state)
       {
-        message_log("stdof", "Segway in Standby Mode");
+        //message_log("stdof", "Segway in Standby Mode");
         printf("Segway in Standby Mode\n");
 
         // Unset RUN led
@@ -1060,36 +1123,31 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
 
         break;
       }
- 
+
       if(jse->button[0])
+        change_mode_request = 1;
+
+      if((!jse->button[0]) && change_mode_request)
       {
+        change_mode_request = 0;
+
         bytes_sent = segway_configure_operational_mode(socket, segway_address, SEGWAY_TRACTOR_REQ);
       
         if(bytes_sent == -1)
         {
-          message_log("segway_configure_operational_mode to tractor", strerror(errno));
+          //message_log("segway_configure_operational_mode to tractor", strerror(errno));
           perror("segway_configure_operational_mode");
         }
 
         break;
       }
       
-#ifdef GPS_DEBUG
-      gps_timeout++;
-      
-      if(gps_timeout > (1000000 / TIMEOUT_USEC)) // 1s
-      {
-        gps_timeout = 0;
-        gps_write_flag = 1;
-        gps_generate(convert_to_float(segway_status->list.linear_vel_mps) * 3.6, convert_to_float(segway_status->list.inertial_z_rate_rps), TIMEOUT_USEC, gps_buffer);
-      }
-#endif
       break;
 
     case SEGWAY_TRACTOR:
       if(segway_previouse_state != segway_status->list.operational_state)
       {
-        message_log("stdof", "Segway in Tractor Mode");
+        //message_log("stdof", "Segway in Tractor Mode");
         printf("Segway in Tractor Mode\n");
 
         // Unset STDBY led
@@ -1105,13 +1163,18 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
         segway_previouse_state = segway_status->list.operational_state;
       }
 
-      if(jse->button[1] && (step_request == 0))
+      if(jse->button[1])
+        change_mode_request = 1;
+      
+      if((!jse->button[1]) && (step_request == 0) && change_mode_request)
       {
+        change_mode_request = 0;
+	
         bytes_sent = segway_configure_operational_mode(socket, segway_address, SEGWAY_STANDBY_REQ);
-
+	
         if(bytes_sent == -1)
         {
-          message_log("segway_configure_operational_mode to standby", strerror(errno));
+          //message_log("segway_configure_operational_mode to standby", strerror(errno));
           perror("segway_configure_operational_mode");
         }
         break;
@@ -1128,7 +1191,7 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
         if(arm_start() > 0)
         {
           robotic_arm_selected = 1;
-		  step_request = 1;
+          step_request = 1;
         }
 
         break;
@@ -1141,27 +1204,16 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
      
       if(bytes_sent < 0)
       {
-        message_log("segway_motion_set", strerror(errno));
+        //message_log("segway_motion_set", strerror(errno));
         perror("segway_motion_set");
       }
       
-#ifdef GPS_DEBUG
-      gps_timeout++;
-      
-      if(gps_timeout > (1000000 / TIMEOUT_USEC)) // 1s
-      {
-        gps_timeout = 0;
-        gps_write_flag = 1; 
-        //printf("Velocity: %f Yaw: %f\n", convert_to_float(segway_status->list.linear_vel_mps), convert_to_float(segway_status->list.inertial_z_rate_rps));
-        gps_generate(convert_to_float(segway_status->list.linear_vel_mps) * 3.6, convert_to_float(segway_status->list.inertial_z_rate_rps), TIMEOUT_USEC, gps_buffer);
-      }
-#endif
       break;
 
     case DISABLE_POWER:
       if(segway_previouse_state != segway_status->list.operational_state)
       {
-        message_log("stdof", "Segway Disable Power");
+        //message_log("stdof", "Segway Disable Power");
         printf("Segway Disable Power\n");
 
         // Unset RUN led
@@ -1196,7 +1248,7 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
     default:
       if(segway_previouse_state != segway_status->list.operational_state)
       {
-        message_log("stdof", "Segway Uknown State");
+        //message_log("stdof", "Segway Uknown State");
         printf("Segway Unknown State\n");
 
         // Unset RUN led
@@ -1357,23 +1409,23 @@ void arm_step_position(int socket_status, struct sockaddr_in *address, struct ww
           if(system(buffer) < 0)
             perror("Set Arm led");
 
-          message_log("stdof", "Pass to vehicle");
+          //message_log("stdof", "Pass to vehicle");
           printf("Pass to vehicle\n");
         }
-		else if(step_request == 1)
+        else if(step_request == 1)
         {
 #ifdef SHOW_ARM_STATE
           printf("ARM_STEP\n");
 #endif
-		  arm_state = ARM_STEP;
-		  robotic_arm_selected = 0;
-		  
+          arm_state = ARM_STEP;
+          robotic_arm_selected = 0;
+  
           // Unset ARM led
           sprintf(buffer, "echo 0 > /sys/class/gpio/gpio%i/value", LED_ARM);
           if(system(buffer) < 0)
             perror("Set Arm led");
 
-          message_log("stdof", "Pass to vehicle with arm in step position");
+          //message_log("stdof", "Pass to vehicle with arm in step position");
           printf("Pass to vehicle with arm in step position\n");
         }
 	  }
@@ -1499,7 +1551,7 @@ void arm_status_update(int socket_status, struct sockaddr_in *address, struct ww
        
       if(bytes_sent < 0)
       {
-        message_log("arm_load_tx", strerror(errno));
+        //message_log("arm_load_tx", strerror(errno));
         perror("arm_load_tx");
       }
       break;
@@ -1670,24 +1722,24 @@ void arm_status_update(int socket_status, struct sockaddr_in *address, struct ww
           if(system(buffer) < 0)
             perror("Set Arm led");
 
-          message_log("stdof", "Pass to vehicle");
+          //message_log("stdof", "Pass to vehicle");
           printf("Pass to vehicle\n");
         }
-		else if(step_request == 1)
+        else if(step_request == 1)
         {
 #ifdef SHOW_ARM_STATE
           printf("ARM_STEP\n");
 #endif
-		  arm_state = ARM_STEP;
-		  step_request = 0;
-		  robotic_arm_selected = 0;
-		  
+          arm_state = ARM_STEP;
+          step_request = 0;
+          robotic_arm_selected = 0;
+  
           // Unset ARM led
           sprintf(buffer, "echo 0 > /sys/class/gpio/gpio%i/value", LED_ARM);
           if(system(buffer) < 0)
             perror("Set Arm led");
 
-          message_log("stdof", "Pass to vehicle with arm in step position");
+          //message_log("stdof", "Pass to vehicle with arm in step position");
           printf("Pass to vehicle with arm in step position\n");
         }
         else
@@ -1697,7 +1749,7 @@ void arm_status_update(int socket_status, struct sockaddr_in *address, struct ww
           if(system(buffer) < 0)
             perror("Set Arm led");
 
-          message_log("stdof", "Pass to robotic arm");
+          //message_log("stdof", "Pass to robotic arm");
           printf("Pass to robotic arm\n");
 #ifdef SHOW_ARM_STATE
           printf("ARM_IDLE\n");

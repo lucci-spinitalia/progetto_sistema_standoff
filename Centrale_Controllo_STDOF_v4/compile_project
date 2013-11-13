@@ -1,5 +1,5 @@
 #/bin/bash -x
-PROG_DIR="/home/root/Common"
+PROG_DIR="/home/lucciu/beaglebone_code/Common"
 SRC=$PROG_DIR/Source
 HEADER=$PROG_DIR/Include
 
