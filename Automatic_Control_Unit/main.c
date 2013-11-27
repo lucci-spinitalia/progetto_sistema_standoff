@@ -27,10 +27,11 @@
 #include "nmea/nmea.h"
 #include "rover_rtb.h"
 #include "gps_generate.h"
+#include "rs232.h"
 
-//#define GPS
-//#define GPS_DEBUG
-#define GPS_SIMUL
+#define GPS
+#define GPS_DEBUG
+//#define GPS_SIMUL
 
 #define ARM_MAX_POSITION 0.1 // value in degree under which the link will be stopped
 
@@ -48,7 +49,8 @@
 #define ACU_GPS_PORT 8017
 #endif
 
-#define RTB_CONTROL_ANGLE 20
+#define RTB_CONTROL_ANGLE_MAX 45
+#define RTB_CONTROL_ANGLE_MIN 20
 
 #define ARM_PRESCALER 2
 #define JOY_MAX_VALUE 32767 
@@ -92,14 +94,14 @@ void segway_status_update(union segway_union *, int, struct sockaddr_in *, long 
 //void arm_status_update(int socket, struct sockaddr_in *address, struct wwvi_js_event *jse, long int joy_max_value) ;
 void message_log(const char *, const char *); 
 int copy_log_file(void);
-void gps_log(double latitude, double longitude);
+void gps_compare_log(double latitude, double longitude, double latitude_odometry, double longitude_odometry,
+                     double velocity, double pdop, double hdop, double vdop, int sat_inview, int sat_used, double direction, 
+		     double direction_bussola, long time_us);
 
 //double GpsCoord2Double(double gps_coord);
 
 /* Gps */
-#ifdef GPS_SIMUL
 nmeaINFO info;
-#endif
 
 extern RTB_status RTBstatus;
 
@@ -153,30 +155,45 @@ int main()
   
   /* Gps */
 #ifdef GPS
-  int socket_gps = -1;
-  struct sockaddr_in gps_address;
-  char gps_buffer_temp[2048];
+  int gps_device = -1;
+  char gps_device_buffer[RS232_BUFFER_SIZE];
   char *token;
   char nmea_message[256];
   int it = 0;
     
   nmeaPARSER parser;
+  char gps_simulate_flag = 0;
+  char gps_simulate_init = 0;
+  
+  struct timespec gps_timer_stop;
+  
+  double gps_lon;
+  double gps_lat;
+  double gps_direction;
+  double pdop, hdop, vdop;
+  int sat_inview, sat_used;
 #endif
+  
   /* Gps */
 #ifdef GPS_SIMUL
   char gps_buffer[2048];
   int gps_timeout = 0;
 #endif
+
   /* Rover */
   double old_direction = 0;
   double old_lat = 0;
   double old_lon = 0;
+  double old_elv = 0;
+  double angle_treshold = 0;
+  int rtb_status = RTB_idle;
+  
   
   // timer
   //struct timespec rover_timer_start, rover_timer_stop;
-  long rover_time_start = 0;
-  long rover_time_stop = 0;
-  long rover_elapsed_time = 0;
+  long rover_time_start_hs = 0;
+  long rover_time_stop_hs = 0;
+  long rover_elapsed_time_hs = 0;
   
   /* Generic Variable */
   int done = 0; // for the while in main loop
@@ -275,21 +292,25 @@ int main()
 #endif
   
 #ifdef GPS
-/*  socket_gps = socket(AF_INET, SOCK_DGRAM, 0);
-
-  if(socket_gps < 0)
-    perror("socket_gps");
- 
-  bzero(&gps_address, sizeof(gps_address));
-  gps_address.sin_family = AF_INET;
-  gps_address.sin_port = htons(ACU_GPS_PORT);
-  gps_address.sin_addr.s_addr = htonl(INADDR_ANY);
-
-  if(bind(socket_gps, (struct sockaddr *)&gps_address, sizeof(gps_address)) == -1)
-    perror("gps_address");
+  // Select UART2_TX and set it as output
+  sprintf(gps_device_buffer, "echo 11 > /sys/kernel/debug/omap_mux/spi0_d0");
+  if(system(gps_device_buffer) < 0)
+    perror("setting tx");
   
-  nmea_zero_INFO(&info);
-  nmea_parser_init(&parser);*/
+  // Select UART1_RX and set it as input pulled up
+  sprintf(gps_device_buffer, "echo 39 > /sys/kernel/debug/omap_mux/spi0_sclk");
+  if(system(gps_device_buffer) < 0)
+    perror("setting rx");
+  
+  gps_device = com_open("/dev/ttyO2", 4800, 'N', 8, 1);
+  
+  if(gps_device < 0)
+    perror("com_open");
+  else
+    nmea_parser_init(&parser);
+  
+  clock_gettime(CLOCK_REALTIME, &gps_timer_stop);
+  rover_time_start_hs = (gps_timer_stop.tv_sec * 100 + (gps_timer_stop.tv_nsec / 10000000));
 #endif
   
   /* Init Rtb module */
@@ -331,6 +352,18 @@ int main()
   message_log("stdof", "Run main program. . .");
   printf("Run main program. . .\n");
   
+  long tetha3, tetha4;
+  wrist_calc_tetha(0, 0, 120, &tetha3, &tetha4);
+  wrist_calc_tetha(0, 60, 103.92, &tetha3, &tetha4);
+  wrist_calc_tetha(0, 84.84, 84.84, &tetha3, &tetha4);
+  wrist_calc_tetha(0, 103.92, 60, &tetha3, &tetha4);
+  wrist_calc_tetha(0, 120, 0, &tetha3, &tetha4);
+  wrist_calc_tetha(0, 103.92, -60, &tetha3, &tetha4);
+  wrist_calc_tetha(0, 84.84, -84.84, &tetha3, &tetha4);
+  wrist_calc_tetha(0, 60, -103.92, &tetha3, &tetha4);
+  wrist_calc_tetha(0, 0, -120, &tetha3, &tetha4);
+
+  printf("Lat: %f Lon: %f\n", GpsCoord2Double(0.011935), GpsCoord2Double(0.010162));
   while(!done)
   { 
     fflush(stdout);
@@ -352,10 +385,10 @@ int main()
     }
     
 #ifdef GPS
-    if(socket_gps > 0)
+    if(gps_device > 0)
     {
-      FD_SET(socket_gps, &rd);
-      nfds = max(nfds, socket_gps);
+      FD_SET(gps_device, &rd);
+      nfds = max(nfds, gps_device);
     }
 #endif
 
@@ -452,10 +485,7 @@ int main()
         {
           // When arrive a command from another source, it can be forwarded only if the arm is in a safe state
           if((status == ACU_HOME) || (status == ACU_IDLE))
-          {
-            printf("Message from other source: %s\n", address_buffer_temp);
-            memcpy(&socket_status_addr_dest, &socket_status_addr_dest_temp, sizeof(struct sockaddr));
-          }
+            memcpy(&socket_status_addr_dest, &socket_status_addr_dest_temp, sizeof(struct sockaddr_in));
           else
             continue;
         }
@@ -640,41 +670,117 @@ int main()
     }
     
 #ifdef GPS
-    if(socket_gps > 0)
+    if(gps_device > 0)
     {
-      if(FD_ISSET(socket_gps, &rd))
+      if(FD_ISSET(gps_device, &rd))
       {
-        bytes_read = recvfrom(socket_gps, gps_buffer_temp, sizeof(gps_buffer_temp), 0, NULL, NULL);
+        bytes_read = rs232_read(gps_device);
+        if((bytes_read > 0) || ((bytes_read < 0) && rs232_buffer_rx_full))
+        {
+          // load udp buffer only if I have received the whole message
+          bytes_read = rs232_unload_rx_filtered(gps_device_buffer, '\n');
 
-        if(bytes_read > 0)
-        {    
-          gps_buffer_temp[bytes_read] = '\0';
-          //printf("%s", gps_buffer_temp);
-          token = strtok(gps_buffer_temp, "\n");
-          while(token != NULL)
+          if(bytes_read > 0)
           {
-            //printf("%s\n", token);
-            sprintf(nmea_message, "%s\n", token);
-            nmea_parse(&parser, nmea_message, (int)strlen(nmea_message), &info);
+            gps_device_buffer[bytes_read] = '\0';
+            //printf("rs232 buffer returned %s\n\n\n", gps_device_buffer);
+            //printf("Length: %i\n", bytes_read);
+            //printf("Gps Buffer %s\n", gps_device_buffer);
+            token = strtok(gps_device_buffer, "\n");
 
-            rover_time_stop = (info.utc.sec * 100 + info.utc.hsec);
-
-            if(rover_time_start != rover_time_stop)
+            while(token != NULL)
             {
-              rover_elapsed_time = rover_time_stop - rover_time_start;
-              rover_time_start = rover_time_stop;
+              //printf("Token %s\n", token);
+              sprintf(nmea_message, "%s\n", token);
+              nmea_parse(&parser, nmea_message, (int)strlen(nmea_message), &info);
+              token = strtok(NULL, "\n");
             }
-            
-/*#ifdef GPS_DEBUG
+
+            //printf("info.smask: %i\n", info.smask);
+            // If I have received all mandatory info (lat, lon, speed, direction) then update the rtb status
+            if((info.smask & GPRMC) && (info.smask & HCHDT) && (info.smask & GPGSV)/*|| 
+               ((info.smask & GPGGA) && ((info.smask & GPVTG) || (info.smask & HCHDT)))*/)
+            {
+	      gps_lat = info.lat;
+	      gps_lon = info.lon;
+	      pdop = info.PDOP;
+	      vdop = info.VDOP;
+	      hdop = info.HDOP;
+	      sat_inview = info.satinfo.inview;
+	      sat_used = info.satinfo.inuse;
+	      gps_direction = info.direction;
+
+              // I can't generate gps message if there isn't data from segway
+              if((segway_status.list.operational_state == SEGWAY_TRACTOR) || (segway_status.list.operational_state == SEGWAY_STANDBY))
+              {
+                // If bad signal then generate gps string by odometry
+                if((info.sig == NMEA_SIG_BAD) || (info.fix == NMEA_FIX_BAD))
+                {
+                  clock_gettime(CLOCK_REALTIME, &gps_timer_stop);
+      
+                  rover_time_stop_hs = (gps_timer_stop.tv_sec * 100 + (gps_timer_stop.tv_nsec / 10000000));
+
+                  if(rover_time_start_hs != rover_time_stop_hs)
+                  {
+                    rover_elapsed_time_hs = rover_time_stop_hs - rover_time_start_hs;
+                    rover_time_start_hs = rover_time_stop_hs;
+                  }
+                  gps_timer_stop.tv_nsec = 0;
+                  // If gps_generate already init then generate gps information
+                  if(gps_simulate_flag)
+                  {
+                    gps_generate(convert_to_float(segway_status.list.linear_vel_mps) * 3.6, 
+                                 info.magnetic_sensor_heading_true, 
+                                 rover_elapsed_time_hs * 10000, gps_device_buffer, &info);
+                  }
+                  else
+                  {
+
+                     gps_generate_init(NMEA_SIG_BAD, NMEA_FIX_BAD, old_lat, old_lon, 
+                                      convert_to_float(segway_status.list.linear_vel_mps) * 3.6,
+                                      old_elv, info.magnetic_sensor_heading_true, 0, 0, &info);
+
+		    /*gps_generate_init(NMEA_SIG_BAD, NMEA_FIX_BAD, info.lat, info.lon, 
+                                      convert_to_float(segway_status.list.linear_vel_mps) * 3.6,
+                                      old_elv, info.magnetic_sensor_heading_true, 0, 0, &info);*/
+
+                    gps_simulate_flag = 1;
+                  }
+                }
+                else
+                {
+                  // If I found the signal
+                  if(gps_simulate_flag)
+                  {
+                    gps_simulate_flag = 0;
+
+                    // If the start position is unknown until now
+                    if(gps_simulate_init == 0)
+                      RTB_traslate_point(GpsCoord2Double(info.lat), GpsCoord2Double(info.lon));
+                  }
+
+                  if(gps_simulate_init == 0)
+                    gps_simulate_init = 1;
+
+                  rover_time_stop_hs = (info.utc.sec * 100 + info.utc.hsec);
+
+                  if(rover_time_start_hs != rover_time_stop_hs)
+                  {
+                    rover_elapsed_time_hs = rover_time_stop_hs - rover_time_start_hs;
+                    rover_time_start_hs = rover_time_stop_hs;
+                  }
+                }
+              }
+#ifdef GPS_DEBUG
             if(it > 0)
             {
-              printf("\033[21A");
+              printf("\033[22A");
             }
             else
               it++;
       
             printf("Time: %i/%i/%i %i:%i:%i.%i                    \n", info.utc.day, info.utc.mon + 1, info.utc.year + 1900, info.utc.hour, info.utc.min, info.utc.sec, info.utc.hsec);
-            if((info.smask & GPGGA) == 1)
+            if((info.smask & GPGGA) || (info.smask & GPRMC))
             {
               //info.smask &= !GPGGA;
               switch(info.sig)
@@ -715,7 +821,7 @@ int main()
             else
             {
               printf("Signal:\n");    
-              printf("Opearating mode:\n");
+              printf("Operating mode:\n");
             }
 
             printf("Position Diluition of Precision: %f                    \n", info.PDOP);
@@ -726,43 +832,97 @@ int main()
             printf("Elevation: %f m                    \n", info.elv);
             printf("Speed: %f km/h                    \n", info.speed);
             printf("Direction: %f degrees                    \n", info.direction);
+
             printf("Magnetic variation degrees: %f                    \n", info.declination); 
- 
             printf("Magnetic sensor heading: %f                    \n", info.magnetic_sensor_heading);
+            printf("Magnetic sensor heading true: %f               \n", info.magnetic_sensor_heading_true);
             printf("Magnetic sensor deviation: %f                    \n", info.magnetic_sensor_deviation);
             printf("Magnetic sensor variation: %f                    \n", info.magnetic_sensor_variation);
-            printf("Rate turn: %f                    \n", info.rate_turn);
+            printf("Rate turn: %f                    \n", convert_to_float(segway_status.list.inertial_z_rate_rps));
             printf("Pitch oscillation: %f                    \n", info.pitch_osc);
             printf("Roll oscillation: %f                    \n", info.roll_osc);
 
-            printf("\nSatellite: \tin view: %i\n\t\tin use: %i                    \n", info.satinfo.inview, info.satinfo.inuse);
-#endif*/
+            printf("\nSatellite: \tin view: %i          \n\t\tin use: %i                    \n", info.satinfo.inview, info.satinfo.inuse);
+#endif
 
-            // If I have received all mandatory info (lat, lon, speed, direction) then update the rtb status
-            if((info.smask & GPRMC) || 
-               ((info.smask & GPGGA) && ((info.smask & GPVTG) || (info.smask & HCHDG))))
-            {
-              if((old_direction != info.direction) || (old_lat != info.lat) || (old_lon != info.lon))
+              if((old_direction != info.magnetic_sensor_heading_true) || (old_lat != info.lat) || (old_lon != info.lon))
               {
                 //printf("%i\n", info.smask);
-                //printf("rtb_update: direction %f vs %f lat %f vs %f lon %f vs %f\n", old_direction, info.direction, old_lat, info.lat, old_lon, info.lon);
-                
-                info.smask &= !(GPRMC | GPGGA | GPVTG | HCHDG);
+                //printf("rtb_update: magnetic_sensor_heading_true %f vs %f lat %f vs %f lon %f vs %f\n", old_direction, info.magnetic_sensor_heading_true, old_lat, info.lat, old_lon, info.lon);
+                gps_compare_log(GpsCoord2Double(gps_lat), GpsCoord2Double(gps_lon), 
+				GpsCoord2Double(info.lat), GpsCoord2Double(info.lon), 
+				convert_to_float(segway_status.list.linear_vel_mps), pdop, hdop, vdop, sat_inview, sat_used, 
+				gps_direction, info.magnetic_sensor_heading_true, rover_elapsed_time_hs * 10000);
+                info.smask &= !(GPRMC | GPGGA | GPVTG | HCHDT | GPGSV);
  
-                //printf("Yaw Rate: %f\n",((info.direction - old_direction)*100)/ rover_elapsed_time);
-		printf("if((info.smask & GPRMC) \n");
-                RTB_update(GpsCoord2Double(info.lon), GpsCoord2Double(info.lat), (info.speed / 3.6), ((info.direction - old_direction)*100)/rover_elapsed_time);
-		printf("Direction: %f\n", info.direction);
-                old_direction = info.direction;
+                //printf("if((info.smask & GPRMC) \n");
+
+                // rover_elapsed_time_hs in hundreds of seconds
+                rtb_status = RTB_update(GpsCoord2Double(info.lon), GpsCoord2Double(info.lat), (info.speed / 3.6), 
+                              convert_to_float(segway_status.list.inertial_z_rate_rps));
+
+                if(rtb_status == RTB_tracking)
+                {
+                  //printf("RTB_update\n");
+                  //printf("Angle: %f Divergenza: %f\n",(RTBstatus.control_vector.angle_deg_north - info.direction), (RTBstatus.control_vector.angle_deg_north - info.direction)/180);
+              
+                  // if I'm in the right direction then activate speed value
+                  angle_treshold = (RTBstatus.distance / RTB_SAVE_DIST_TRSH) * (RTB_CONTROL_ANGLE_MAX - RTB_CONTROL_ANGLE_MIN) + RTB_CONTROL_ANGLE_MIN;
+		  
+                  if((fabs(RTBstatus.control_vector.angle_deg_north - info.magnetic_sensor_heading_true) < angle_treshold) && 
+                     (fabs(RTBstatus.control_vector.angle_deg_north - info.magnetic_sensor_heading_true) > -angle_treshold))
+                  {
+                    // Add a factor that depend on error
+                    RTBstatus.control_values.speed = (1 - (fabs(RTBstatus.control_vector.angle_deg_north - info.magnetic_sensor_heading_true)) / 180) * cos((RTBstatus.control_vector.angle_deg_north - info.magnetic_sensor_heading_true) * M_PI / 180);
+
+                    // Add a factor (90 / RTB_CONTROL_ANGLE) to the angle to obtain a fastest convergence
+                    if((RTBstatus.control_vector.angle_deg_north - info.magnetic_sensor_heading_true) >= 0)
+                    {
+                      RTBstatus.control_values.heading = sin(min((RTBstatus.control_vector.angle_deg_north - info.magnetic_sensor_heading_true) * (180 / angle_treshold), 90) * M_PI / 180);
+                      //printf("Heading factor: %f\n", min((RTBstatus.control_vector.angle_deg_north - info.magnetic_sensor_heading_true) * (180 / angle_treshold), 90));
+                    }
+                    else
+                    {
+                      RTBstatus.control_values.heading = sin(max((RTBstatus.control_vector.angle_deg_north - info.magnetic_sensor_heading_true) * (180 / angle_treshold), -90) * M_PI / 180);
+                      //printf("Heading factor: %f\n", max((RTBstatus.control_vector.angle_deg_north - info.direction) * (180 / angle_treshold/2), -90));
+                    }
+                  }
+                  else
+                  {
+                    RTBstatus.control_values.speed = 0;
+                
+                    // Choose angle to turn. If error > 180° then turn over 360
+                    if((RTBstatus.control_vector.angle_deg_north - info.magnetic_sensor_heading_true) >= 0)
+                    {
+                       if((RTBstatus.control_vector.angle_deg_north - info.magnetic_sensor_heading_true) <= 180)
+                        RTBstatus.control_values.heading = 1;
+                      else 
+                        RTBstatus.control_values.heading = -1;
+                    }
+                    else
+                    {
+                      if((RTBstatus.control_vector.angle_deg_north - info.magnetic_sensor_heading_true) >= -180)
+                        RTBstatus.control_values.heading = -1;
+                      else 
+                        RTBstatus.control_values.heading = 1;
+                    }
+                  }
+                }
+                else
+                {
+                  RTBstatus.control_values.heading = 0;
+                  RTBstatus.control_values.speed = 0;
+                }
+
+                old_direction = info.magnetic_sensor_heading_true;
                 old_lat = info.lat;
                 old_lon = info.lon;
+                old_elv = info.elv;
               }
+                     
+              info.smask &= !(GPRMC | GPGGA | GPVTG | HCHDT | GPGSV);
             }
-
-            token = strtok(NULL, "\n");
           }
-          
-          info.smask &= !(GPRMC | GPGGA | GPVTG | HCHDG);
         }
         continue;
       }
@@ -786,7 +946,7 @@ int main()
             bytes_sent = arm_send(socket_arm, &arm_address);
 
             if(bytes_sent <= 0)
-              printf("Error on arm_send");
+              printf("Error on arm_send\n");
   
             continue;
           }
@@ -883,7 +1043,7 @@ int main()
                     else
                       arm_link[arm_request_index - 1].velocity_target = -(long)arm_link[arm_request_index - 1].velocity_target_limit/2;
         
-                    //printf("velocity target for %i: %ld\n",arm_request_index, arm_link[arm_request_index - 1].velocity_target);
+                    //printf("velocity target for %i: %ld, velocity_target_limit: %ld\n",arm_request_index, arm_link[arm_request_index - 1].velocity_target, arm_link[arm_request_index - 1].velocity_target_limit);
                     if((arm_link[arm_request_index - 1].actual_position < (arm_link[arm_request_index -1].position_target + (long)(arm_encoder_factor * arm_link[arm_request_index -1].gear/2))) && 
 		      ((link_homing_complete & (int)pow(2, arm_request_index - 1)) == 0))
                     {
@@ -1003,10 +1163,10 @@ int main()
               segway_check = 0;
 
               if(RTBstatus.control_values.heading == 0)
-                ccu_segway_status.list.inertial_z_rate_rps = 0;
+                segway_status.list.inertial_z_rate_rps = 0;
 
               if(RTBstatus.control_values.speed == 0)
-                ccu_segway_status.list.linear_vel_mps = 0;
+                segway_status.list.linear_vel_mps = 0;
 
               if(segway_down == 1)
               {
@@ -1100,14 +1260,14 @@ int main()
 
         if(gps_timeout >= (1000000 / current_timeout)) // 1s
         {
-	  printf("Yaw rate: %f\n", convert_to_float(segway_status.list.inertial_z_rate_rps));
+	  //printf("Yaw rate: %f\n", convert_to_float(segway_status.list.inertial_z_rate_rps));
           gps_generate((float)convert_to_float(segway_status.list.linear_vel_mps) * 3.6, 
-                       convert_to_float(segway_status.list.inertial_z_rate_rps), 
+                       (convert_to_float(segway_status.list.inertial_z_rate_rps) * gps_timeout * current_timeout) / 1000000) * 180 / M_PI, 
                        gps_timeout * current_timeout, gps_buffer, &info);
 
           //printf("Generate gps command \n%s\n", gps_buffer);
 
-          //printf("Yaw Rate: %f\n",((info.direction - old_direction)*100)/ rover_elapsed_time);
+          //printf("Yaw Rate: %f\n",((info.direction - old_direction)*100)/ rover_elapsed_time_hs);
           if((old_direction != info.direction) || (old_lat != info.lat) || (old_lon != info.lon))
           {
             RTB_update(GpsCoord2Double(info.lon), GpsCoord2Double(info.lat), (info.speed / 3.6), ((info.direction - old_direction)) / (gps_timeout * ((float)current_timeout)/1000000));
@@ -1130,7 +1290,7 @@ int main()
         if(gps_timeout >= (1000000 / current_timeout)) // 1s
         {
           gps_generate((float)convert_to_float(segway_status.list.linear_vel_mps) * 3.6, 
-                       convert_to_float(segway_status.list.inertial_z_rate_rps), 
+                       (convert_to_float(segway_status.list.inertial_z_rate_rps) * gps_timeout * current_timeout) / 1000000) * 180 / M_PI, 
                        gps_timeout * current_timeout, gps_buffer, &info);
 
           //printf("Generate gps command \n%s\n", gps_buffer);
@@ -1169,7 +1329,7 @@ int main()
         if(gps_timeout >= (1000000 / current_timeout)) // 1s
         {
           gps_generate((float)convert_to_float(segway_status.list.linear_vel_mps) * 3.6, 
-                       convert_to_float(segway_status.list.inertial_z_rate_rps), 
+                       (convert_to_float(segway_status.list.inertial_z_rate_rps) * gps_timeout * current_timeout) / 1000000) * 180 / M_PI, 
                        gps_timeout * current_timeout, gps_buffer, &info);
 
           //printf("Generate gps command \n%s\n", gps_buffer);
@@ -1206,7 +1366,7 @@ int main()
         if(gps_timeout >= (1000000 / current_timeout)) // 1s
         {
           gps_generate((float)convert_to_float(segway_status.list.linear_vel_mps) * 3.6, 
-                       convert_to_float(segway_status.list.inertial_z_rate_rps), 
+                       (convert_to_float(segway_status.list.inertial_z_rate_rps) * gps_timeout * current_timeout) / 1000000) * 180 / M_PI, 
                        gps_timeout * current_timeout, gps_buffer, &info);
 
           //printf("Generate gps command \n%s\n", gps_buffer);
@@ -1302,6 +1462,7 @@ int main()
           segway_prescaler_timeout++;
 
         segway_status_update(&segway_status, socket_segway, &segway_address, JOY_MAX_VALUE);
+        
         if(segway_status.list.operational_state == SEGWAY_STANDBY)
         {
           // Request tractor mode
@@ -1309,7 +1470,7 @@ int main()
       
           if(bytes_sent == -1)
           {
-            message_log("segway_configure_operational_mode to tractor", strerror(errno));
+            //message_log("segway_configure_operational_mode to tractor", strerror(errno));
             perror("segway_configure_operational_mode");
           }
         }
@@ -1325,7 +1486,7 @@ int main()
         if(gps_timeout >= (1000000 / current_timeout)) // 1s
         {
           gps_generate((float)convert_to_float(segway_status.list.linear_vel_mps) * 3.6, 
-                       convert_to_float(segway_status.list.inertial_z_rate_rps), 
+                       (convert_to_float(segway_status.list.inertial_z_rate_rps) * gps_timeout * current_timeout) / 1000000) * 180 / M_PI, 
                        gps_timeout * current_timeout, gps_buffer, &info);
 
           //printf("Generate gps command \n%s\n", gps_buffer);
@@ -1503,12 +1664,14 @@ void message_log(const char *scope, const char *message)
   fclose(file);
 }
 
-void gps_log(double latitude, double longitude)
+void gps_compare_log(double latitude, double longitude, double latitude_odometry, double longitude_odometry,
+                     double velocity, double pdop, double hdop, double vdop, int sat_inview, int sat_used, double direction, 
+		     double direction_bussola, long time_us)
 {
   FILE *file = NULL;
 
   // Init Log File
-  file = fopen("gps_log", "a");
+  file = fopen("gps_compare_log", "a");
   
   if(!file)
   {
@@ -1516,10 +1679,13 @@ void gps_log(double latitude, double longitude)
     return;
   }
   
-  fprintf(file, "%f,%f,0 \n", longitude, latitude);
+  fprintf(file, "%f,%f,0,%f,%f,0,%f,%f,%f,%f,%d,%d,%f,%f,%ld\n", longitude, latitude, longitude_odometry, latitude_odometry, 
+	                                                  velocity, pdop, hdop, vdop, sat_inview, sat_used, direction, direction_bussola,
+							  time_us);
 
   fclose(file);
 }
+
 int copy_log_file() {
   FILE *log = NULL;
   FILE *disk = NULL;

@@ -32,18 +32,12 @@
 #include "segway_udp_v2.h" 
 #include "socket_udp.h"
 #include "arm_udp.h"
-#include "gps_generate.h"
 
-//#define GPS_DEBUG
 //#define SHOW_ARM_STATE
 
 #define ACU_ADDRESS "192.168.1.28"
 #define ACU_STATUS_PORT 8016
 #define ACU_SEGWAY_PORT 8017
-
-#ifdef GPS_DEBUG
-#define ACU_GPS_PORT 8017
-#endif
 
 #define CCU_ADDRESS "192.168.1.102"
 #define CCU_PORT_SEGWAY 8003
@@ -106,16 +100,7 @@
 /* Robotic Arm */
 unsigned char robotic_arm_selected = 0;
 unsigned char step_request = 0;
-
-/* Gps */
-#ifdef GPS_DEBUG
-  char gps_buffer[2048];
-  int gps_timeout = 0;
-  unsigned char gps_write_flag = 0;
-  int socket_gps = -1;
-  struct sockaddr_in gps_address;
-#endif
-  
+ 
 /* Automatic Control Unit */
 unsigned char status_acu = ACU_UNKNOWN;
   
@@ -169,6 +154,7 @@ int main()
   struct arm_frame arm_buffer_temp;
   unsigned char arm_request_index;
   char *arm_token_result;
+  double arm_position[3];
 
   /* Status client interface*/
   int socket_status = -1;
@@ -356,21 +342,7 @@ int main()
   socket_segway_acu_addr_dest.sin_family = AF_INET;
   socket_segway_acu_addr_dest.sin_addr.s_addr = inet_addr(ACU_ADDRESS);
   socket_segway_acu_addr_dest.sin_port = htons(ACU_SEGWAY_PORT);
-  
-  /* Gps */
-#ifdef GPS_DEBUG
-  gps_generate_init(3, 3, 4140.7277, 1230.5320, 0.0, 10.86, 0.0, 2, 2, NULL);
-  socket_gps = socket(AF_INET, SOCK_DGRAM, 0);
-
-  if(socket_status < 0)
-    perror("socket_status");
-
-  bzero(&gps_address, sizeof(gps_address));
-  gps_address.sin_family = AF_INET;
-  gps_address.sin_addr.s_addr = inet_addr(ACU_ADDRESS);
-  gps_address.sin_port = htons(ACU_GPS_PORT);
-#endif
-  
+   
   // The segway requirements state that the minimum update frequency have to be 0.5Hz, so
   // the timeout on udev have to be < 2 secs.
   if(robotic_arm_selected == 0)
@@ -408,14 +380,6 @@ int main()
       FD_SET(udev_fd, &rd);
       nfds = max(nfds, udev_fd);
     }
-    
-#ifdef GPS_DEBUG
-    if((socket_gps > 0) && gps_write_flag)
-    {
-      FD_SET(socket_gps, &wr);
-      nfds = max(nfds, socket_gps);
-    }
-#endif
 
     switch(status_acu)
     {
@@ -657,6 +621,9 @@ int main()
                 arm_link[arm_request_index - 1].request_actual_position = 0;
                 arm_link[arm_request_index - 1].actual_position = atol(arm_buffer_temp.param.arm_command);
  
+                //arm_calc_xyz(&arm_position[0], &arm_position[1], &arm_position[2]);
+                //printf("Arm position: x - %f y - %f z - %f\n", arm_position[0], arm_position[1], arm_position[2]);
+
                 if(socket_ccu_addr_dest.sin_port != htons(CCU_PORT_ARM))
                   socket_ccu_addr_dest.sin_port = htons(CCU_PORT_ARM);
   
@@ -729,35 +696,6 @@ int main()
       }//end if(joy_selected == null)
     }
     
-#ifdef GPS_DEBUG 
-    if(socket_gps > 0)
-    {
-      if(FD_ISSET(socket_gps, &wr))
-      {
-        bytes_sent = sendto(socket_gps, gps_buffer, strlen(gps_buffer), 0, (struct sockaddr *)&gps_address, sizeof(gps_address));
-
-        if(bytes_sent < 0)
-          perror("sendto gps");
-        else
-          gps_write_flag = 0;
-
-        continue;
-      }
-    }
-#endif
-
-#ifdef GPS_DEBUG
-      gps_timeout++;
-      
-      if(gps_timeout >= (1000000 / current_timeout)) // 1s
-      {
-        gps_generate((float)convert_to_float(segway_status.list.linear_vel_mps) * 3.6, 
-        convert_to_float(segway_status.list.inertial_z_rate_rps), gps_timeout * current_timeout, gps_buffer, NULL);
-        gps_timeout = 0;
-        gps_write_flag = 1;
-        //printf("Generate gps command %s\n", gps_buffer);
-      }
-#endif
     // searching for the segway and send joystick command to it
     if(robotic_arm_selected == 0)
     {
