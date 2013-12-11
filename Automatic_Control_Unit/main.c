@@ -30,7 +30,7 @@
 #include "rs232.h"
 
 #define GPS
-#define GPS_DEBUG
+//#define GPS_DEBUG
 //#define GPS_SIMUL
 
 #define ARM_MAX_POSITION 0.1 // value in degree under which the link will be stopped
@@ -59,7 +59,7 @@
 #define TIMEOUT_SEC 0 
 #define TIMEOUT_USEC_SEGWAY 100000
 #define TIMEOUT_USEC_ARM 10000
-#define TIMEOUT_SEC_RETURN_TO_BASE 6
+#define TIMEOUT_SEC_RETURN_TO_BASE 30
 #define TIMEOUT_USEC_STATUS 500000
 #define LOG_FILE "/var/log/automatic_control_unit"
 
@@ -97,6 +97,8 @@ int copy_log_file(void);
 void gps_compare_log(double latitude, double longitude, double latitude_odometry, double longitude_odometry,
                      double velocity, double pdop, double hdop, double vdop, int sat_inview, int sat_used, double direction, 
 		     double direction_bussola, long time_us);
+
+void gps_text_log(char *string);
 
 //double GpsCoord2Double(double gps_coord);
 
@@ -159,6 +161,7 @@ int main()
   char gps_device_buffer[RS232_BUFFER_SIZE];
   char *token;
   char nmea_message[256];
+  char nmea_message_log[2048];
   int it = 0;
     
   nmeaPARSER parser;
@@ -167,11 +170,11 @@ int main()
   
   struct timespec gps_timer_stop;
   
-  double gps_lon;
+  /*double gps_lon;
   double gps_lat;
   double gps_direction;
   double pdop, hdop, vdop;
-  int sat_inview, sat_used;
+  int sat_inview, sat_used;*/
 #endif
   
   /* Gps */
@@ -311,6 +314,8 @@ int main()
   
   clock_gettime(CLOCK_REALTIME, &gps_timer_stop);
   rover_time_start_hs = (gps_timer_stop.tv_sec * 100 + (gps_timer_stop.tv_nsec / 10000000));
+  
+  nmea_message_log[0] = '\0';
 #endif
   
   /* Init Rtb module */
@@ -351,19 +356,118 @@ int main()
   
   message_log("stdof", "Run main program. . .");
   printf("Run main program. . .\n");
-  
-  long tetha3, tetha4;
-  wrist_calc_tetha(0, 0, 120, &tetha3, &tetha4);
-  wrist_calc_tetha(0, 60, 103.92, &tetha3, &tetha4);
-  wrist_calc_tetha(0, 84.84, 84.84, &tetha3, &tetha4);
-  wrist_calc_tetha(0, 103.92, 60, &tetha3, &tetha4);
-  wrist_calc_tetha(0, 120, 0, &tetha3, &tetha4);
-  wrist_calc_tetha(0, 103.92, -60, &tetha3, &tetha4);
-  wrist_calc_tetha(0, 84.84, -84.84, &tetha3, &tetha4);
-  wrist_calc_tetha(0, 60, -103.92, &tetha3, &tetha4);
-  wrist_calc_tetha(0, 0, -120, &tetha3, &tetha4);
+  /*
+  long tetha0, tetha1, tetha2;
+  // move link 3 on y-z axis
+  double x,y,z;
+  double x0, y0, z0;
+  int i;
 
-  printf("Lat: %f Lon: %f\n", GpsCoord2Double(0.011935), GpsCoord2Double(0.010162));
+  arm_calc_xyz(&x, &y, &z, -59 * M_PI / (arm_encoder_factor * arm_link[0].gear * 180),
+            2983 * M_PI / (arm_encoder_factor * arm_link[1].gear * 180),
+             -838 * M_PI / (arm_encoder_factor * arm_link[2].gear * 180));
+  arm_calc_tetha(112.333725, 318.253753, 835.046354, &tetha0, &tetha1, &tetha2);
+  printf("Theta0: %ld Theta1: %ld Theata2: %ld\n", tetha0,tetha1, tetha2); 
+
+  arm_calc_xyz(&x, &y, &z, tetha0 * M_PI / (arm_encoder_factor * arm_link[0].gear * 180),
+            tetha1 * M_PI / (arm_encoder_factor * arm_link[1].gear * 180),
+             tetha2 * M_PI / (arm_encoder_factor * arm_link[2].gear * 180));
+  printf("x: %f y: %f z: %f\n\n", x, y, z);*/
+
+ /*   x = -22.913913;
+    y = -856.824226;
+    z = 473.655255 + 200;
+    for(i = 25; i <= 200; i += 25)
+    {
+      y += i;
+    
+      arm_calc_tetha(x, y, z, &tetha0, &tetha1, &tetha2);
+      printf("Theta0: %ld Theta1: %ld Theata2: %ld\n", tetha0, tetha1, tetha2); 
+      //arm_calc_xyz(&x, &y, &z, tetha0 * M_PI / (arm_encoder_factor * arm_link[0].gear * 180),
+      //           tetha1 * M_PI / (arm_encoder_factor * arm_link[1].gear * 180),
+      //           tetha2 * M_PI / (arm_encoder_factor * arm_link[2].gear * 180));
+      //printf("x: %f y: %f z: %f\n\n", x, y, z);
+    }*/
+
+  /*arm_calc_xyz(&x, &y, &z, 0 * M_PI / (arm_encoder_factor * arm_link[0].gear * 180),
+               679000 * M_PI / (arm_encoder_factor * arm_link[1].gear * 180),
+               215000 * M_PI / (arm_encoder_factor * arm_link[2].gear * 180));
+  printf("x: %f y: %f z: %f\n", x, y, z);
+    
+  arm_calc_tetha(x, y, z, &tetha0, &tetha1, &tetha2);
+  printf("Theta0: %ld Theta1: %ld Theata2: %ld\n", tetha0, tetha1, tetha2); 
+  arm_calc_xyz(&x, &y, &z, tetha0 * M_PI / (arm_encoder_factor * arm_link[0].gear * 180),
+             tetha1 * M_PI / (arm_encoder_factor * arm_link[1].gear * 180),
+             tetha2 * M_PI / (arm_encoder_factor * arm_link[2].gear * 180));
+  printf("x: %f y: %f z: %f\n\n", x, y, z);
+  
+  arm_calc_xyz(&x, &y, &z, 20721 * M_PI / (arm_encoder_factor * arm_link[0].gear * 180),
+               1088668 * M_PI / (arm_encoder_factor * arm_link[1].gear * 180),
+               261131 * M_PI / (arm_encoder_factor * arm_link[2].gear * 180));
+  printf("x: %f y: %f z: %f\n", x, y, z);
+    
+  arm_calc_tetha(x, y, z, &tetha0, &tetha1, &tetha2);
+  printf("Theta0: %ld Theta1: %ld Theata2: %ld\n", tetha0, tetha1, tetha2); 
+  arm_calc_xyz(&x, &y, &z, tetha0 * M_PI / (arm_encoder_factor * arm_link[0].gear * 180),
+             tetha1 * M_PI / (arm_encoder_factor * arm_link[1].gear * 180),
+             tetha2 * M_PI / (arm_encoder_factor * arm_link[2].gear * 180));
+  printf("x: %f y: %f z: %f\n", x, y, z);*/
+  /*arm_calc_tetha(0, 500 + 580 * cos(1.046), 580 * sin(1.046), &tetha0, &tetha1, &tetha2);
+      printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  arm_calc_tetha(0, 500 + 580 * cos(M_PI_4), 580 * sin(M_PI_4), &tetha0, &tetha1, &tetha2);
+  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  arm_calc_tetha(0, 500 + 580 * cos(0.523), 580 * sin(0.523), &tetha0, &tetha1, &tetha2);
+      printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  arm_calc_tetha(0, 1080, 0, &tetha0, &tetha1, &tetha2);
+      printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  arm_calc_tetha(0, 500 + 580 * cos(-0.523), 580 * sin(-0.523), &tetha0, &tetha1, &tetha2);
+      printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  arm_calc_tetha(0, 500 + 580 * cos(-M_PI_4), 580 * sin(-M_PI_4), &tetha0, &tetha1, &tetha2);
+      printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  arm_calc_tetha(0, 500 + 580 * cos(-1.046), 580 * sin(-1.046), &tetha0, &tetha1, &tetha2);
+      printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  arm_calc_tetha(0, 500, -580, &tetha0, &tetha1, &tetha2);
+      printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  */
+  /*arm_calc_tetha(0, 0, 1080, &tetha0, &tetha1, &tetha2);
+  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  arm_calc_tetha(0, 1080 * cos(1.046), 1080 * sin(1.046), &tetha0, &tetha1, &tetha2);
+  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  arm_calc_tetha(0, 1080 * cos(M_PI_4), 1080 * sin(M_PI_4), &tetha0, &tetha1, &tetha2);
+  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  arm_calc_tetha(0, 1080 * cos(0.523), 1080 * sin(0.523), &tetha0, &tetha1, &tetha2);
+  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  arm_calc_tetha(0, 1080, 0, &tetha0, &tetha1, &tetha2);
+  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  arm_calc_tetha(0, 1080 * cos(-0.523), 1080 * sin(-0.523), &tetha0, &tetha1, &tetha2);
+  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  arm_calc_tetha(0, 1080 * cos(-M_PI_4), 1080 * sin(-M_PI_4), &tetha0, &tetha1, &tetha2);
+  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  arm_calc_tetha(0, 1080 * cos(-1.046), 1080 * sin(-1.046), &tetha0, &tetha1, &tetha2);
+  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  arm_calc_tetha(0, 0, -1080, &tetha0, &tetha1, &tetha2);
+  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+*/  
+  /*arm_calc_tetha(1080, 0, 0, &tetha0, &tetha1, &tetha2);
+  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  arm_calc_tetha(1080 * sin(1.046), 1080 * cos(1.046), 0, &tetha0, &tetha1, &tetha2);
+  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  arm_calc_tetha(1080 * sin(M_PI_4), 1080 * cos(M_PI_4), 0, &tetha0, &tetha1, &tetha2);
+  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  arm_calc_tetha(1080 * sin(0.523), 1080 * cos(0.523), 0, &tetha0, &tetha1, &tetha2);
+  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  arm_calc_tetha(0, 1080, 0, &tetha0, &tetha1, &tetha2);
+  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  arm_calc_tetha(1080 * sin(-0.523), 1080 * cos(-0.523), 0, &tetha0, &tetha1, &tetha2);
+  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  arm_calc_tetha(1080 * sin(-M_PI_4), 1080 * cos(-M_PI_4), 0, &tetha0, &tetha1, &tetha2);
+  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  arm_calc_tetha(1080 * sin(-1.046), 1080 * cos(-1.046), 0, &tetha0, &tetha1, &tetha2);
+  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  arm_calc_tetha(-1080, 0, 0, &tetha0, &tetha1, &tetha2);
+  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
+  */
+ 
   while(!done)
   { 
     fflush(stdout);
@@ -691,6 +795,7 @@ int main()
             while(token != NULL)
             {
               //printf("Token %s\n", token);
+              sprintf(nmea_message_log, "%s%s\n", nmea_message_log, token);
               sprintf(nmea_message, "%s\n", token);
               nmea_parse(&parser, nmea_message, (int)strlen(nmea_message), &info);
               token = strtok(NULL, "\n");
@@ -701,21 +806,21 @@ int main()
             if((info.smask & GPRMC) && (info.smask & HCHDT) && (info.smask & GPGSV)/*|| 
                ((info.smask & GPGGA) && ((info.smask & GPVTG) || (info.smask & HCHDT)))*/)
             {
-	      gps_lat = info.lat;
+	      /*gps_lat = info.lat;
 	      gps_lon = info.lon;
 	      pdop = info.PDOP;
 	      vdop = info.VDOP;
 	      hdop = info.HDOP;
 	      sat_inview = info.satinfo.inview;
 	      sat_used = info.satinfo.inuse;
-	      gps_direction = info.direction;
+	      gps_direction = info.direction;*/
 
               // I can't generate gps message if there isn't data from segway
               if((segway_status.list.operational_state == SEGWAY_TRACTOR) || (segway_status.list.operational_state == SEGWAY_STANDBY))
               {
                 // If bad signal then generate gps string by odometry
-                if((info.sig == NMEA_SIG_BAD) || (info.fix == NMEA_FIX_BAD))
-                {
+                //if((info.sig == NMEA_SIG_BAD) || (info.fix == NMEA_FIX_BAD))
+                //{
                   clock_gettime(CLOCK_REALTIME, &gps_timer_stop);
       
                   rover_time_stop_hs = (gps_timer_stop.tv_sec * 100 + (gps_timer_stop.tv_nsec / 10000000));
@@ -735,18 +840,17 @@ int main()
                   }
                   else
                   {
-
                      gps_generate_init(NMEA_SIG_BAD, NMEA_FIX_BAD, old_lat, old_lon, 
                                       convert_to_float(segway_status.list.linear_vel_mps) * 3.6,
                                       old_elv, info.magnetic_sensor_heading_true, 0, 0, &info);
 
-		    /*gps_generate_init(NMEA_SIG_BAD, NMEA_FIX_BAD, info.lat, info.lon, 
-                                      convert_to_float(segway_status.list.linear_vel_mps) * 3.6,
-                                      old_elv, info.magnetic_sensor_heading_true, 0, 0, &info);*/
+		    //gps_generate_init(NMEA_SIG_BAD, NMEA_FIX_BAD, info.lat, info.lon, 
+                    //                  convert_to_float(segway_status.list.linear_vel_mps) * 3.6,
+                    //                 old_elv, info.magnetic_sensor_heading_true, 0, 0, &info);
 
                     gps_simulate_flag = 1;
                   }
-                }
+                /*}
                 else
                 {
                   // If I found the signal
@@ -769,7 +873,7 @@ int main()
                     rover_elapsed_time_hs = rover_time_stop_hs - rover_time_start_hs;
                     rover_time_start_hs = rover_time_stop_hs;
                   }
-                }
+                }*/
               }
 #ifdef GPS_DEBUG
             if(it > 0)
@@ -849,10 +953,13 @@ int main()
               {
                 //printf("%i\n", info.smask);
                 //printf("rtb_update: magnetic_sensor_heading_true %f vs %f lat %f vs %f lon %f vs %f\n", old_direction, info.magnetic_sensor_heading_true, old_lat, info.lat, old_lon, info.lon);
+                /*gps_text_log(nmea_message_log);
+                nmea_message_log[0] = '\0';
                 gps_compare_log(GpsCoord2Double(gps_lat), GpsCoord2Double(gps_lon), 
 				GpsCoord2Double(info.lat), GpsCoord2Double(info.lon), 
 				convert_to_float(segway_status.list.linear_vel_mps), pdop, hdop, vdop, sat_inview, sat_used, 
-				gps_direction, info.magnetic_sensor_heading_true, rover_elapsed_time_hs * 10000);
+				gps_direction, info.magnetic_sensor_heading_true, rover_elapsed_time_hs * 10000);*/
+		
                 info.smask &= !(GPRMC | GPGGA | GPVTG | HCHDT | GPGSV);
  
                 //printf("if((info.smask & GPRMC) \n");
@@ -960,25 +1067,38 @@ int main()
           {
             // the message would be an information such position or warning
             bytes_read = recvfrom(socket_arm, &arm_buffer_temp, sizeof(struct arm_frame), 0, NULL, NULL);
-
+            
             if(bytes_read > 0)
             {
               // Every message from arm must ends with \r
               arm_token_result = strchr(arm_buffer_temp.param.arm_command, 13);
-	      
+      
               if((query_link > -1) && (arm_token_result != NULL))
               {
-                *arm_token_result = '\0';
+                //printf("Received message from %i\n", query_link);
+                *arm_token_result = '\0';  // translate token in null character
                 arm_request_index = query_link;
 
                 if(arm_link[arm_request_index - 1].request_trajectory_status == 1)
                 {
+                  query_link = -1;
                   arm_link[arm_request_index - 1].request_timeout = 0;
                   arm_link[arm_request_index - 1].request_trajectory_status = 0;
                   arm_link[arm_request_index - 1].trajectory_status = atoi(arm_buffer_temp.param.arm_command);
+  
+                  if(arm_request_index == MOTOR_NUMBER)
+                  {
+                    if(arm_link[arm_request_index - 1].trajectory_status > 0)
+                    {
+                      if(arm_link[arm_request_index -1].position_target > 0)
+                        actuator_set_command(30000);
+                      else
+                        actuator_set_command(-30000);
+                    }
+                    else
+                      link_homing_complete |= (int)pow(2, arm_request_index - 1);
+                  }
                 }
-                
-                query_link = -1;
               }
             }
             else
@@ -1045,12 +1165,13 @@ int main()
         
                     //printf("velocity target for %i: %ld, velocity_target_limit: %ld\n",arm_request_index, arm_link[arm_request_index - 1].velocity_target, arm_link[arm_request_index - 1].velocity_target_limit);
                     if((arm_link[arm_request_index - 1].actual_position < (arm_link[arm_request_index -1].position_target + (long)(arm_encoder_factor * arm_link[arm_request_index -1].gear/2))) && 
-		      ((link_homing_complete & (int)pow(2, arm_request_index - 1)) == 0))
+                       ((link_homing_complete & (int)pow(2, arm_request_index - 1)) == 0))
                     {
                       //printf("Motor%i Actual position: %ld, Position target range: %ld\n", arm_request_index, arm_link[arm_request_index - 1].actual_position, arm_link[arm_request_index -1].position_target + 400);
                       if(arm_stop(arm_request_index))
                       {
                         //printf("link_homing_complete |= %i\n", (int)pow(2, arm_request_index - 1));
+                        arm_link[arm_request_index - 1].velocity_target = 0;
                         link_homing_complete |= (int)pow(2, arm_request_index - 1);
                       }
                     }  
@@ -1081,6 +1202,7 @@ int main()
                       if(arm_stop(arm_request_index))
                       {
                         //printf("link_homing_complete |= %i\n", (int)pow(2, arm_request_index - 1));
+                        arm_link[arm_request_index - 1].velocity_target = 0;
                         link_homing_complete |= (int)pow(2, arm_request_index - 1);
                       }
                     }
@@ -1109,6 +1231,9 @@ int main()
                   arm_link[arm_request_index - 1].request_trajectory_status = 0;
                   arm_link[arm_request_index - 1].trajectory_status = atoi(arm_buffer_temp.param.arm_command);
   
+                  if((arm_link[arm_request_index - 1].trajectory_status == 0) && (arm_request_index < MOTOR_NUMBER))
+                    arm_set_command_without_value(arm_request_index, "OFF");
+
                   if(arm_request_index == MOTOR_NUMBER)
                   {
                     if(arm_link[arm_request_index - 1].trajectory_status > 0)
@@ -1347,12 +1472,16 @@ int main()
 #endif
         if(arm_homing_check())
         {
-          printf("Motion complete\n");
+          //printf("Arm homing check\n");
+          if(arm_stop(0))
+          {
+            printf("Motion complete\n");
 
-          arm_init(0, 1000, 10, 32767, 2000, 1500, 100, 700, 1023);
-          arm_init(2, 20000, 10, 1500, 35000, 1500, 100, 500, 1023);
-          timeout_return_to_base = 0;
-          status = previouse_status;
+            arm_init(0, 1000, 10, 32767, 2000, 1500, 100, 700, 1023);
+            arm_init(2, 20000, 10, 1500, 35000, 1500, 100, 500, 1023);
+            timeout_return_to_base = 0;
+            status = previouse_status;
+	  }
         }
 
         select_timeout.tv_sec = TIMEOUT_SEC;
@@ -1437,6 +1566,18 @@ int main()
           {
             printf("Segway Init. . .\n");
             segway_init(socket_segway, &segway_address, &segway_status);
+
+            // Set max velocity
+            //printf("segway_configure_max_vel\n");
+            segway_configure_max_vel(socket_segway, &segway_address, 0.5/*MAX_VELOCITY*/);
+
+            // Set max acceleration
+            //printf("segway_configure_max_acc\n");
+            segway_configure_max_acc(socket_segway, &segway_address, 0.5/*MAX_ACCELERATION*/);
+
+            // Set max deceleration
+            //printf("segway_configure_max_decel\n");
+            segway_configure_max_decel(socket_segway, &segway_address, 0.5/*MAX_DECELERATION*/);
           }  
           else
             segway_configure_none(socket_segway, &segway_address, 0x00);
@@ -1682,6 +1823,24 @@ void gps_compare_log(double latitude, double longitude, double latitude_odometry
   fprintf(file, "%f,%f,0,%f,%f,0,%f,%f,%f,%f,%d,%d,%f,%f,%ld\n", longitude, latitude, longitude_odometry, latitude_odometry, 
 	                                                  velocity, pdop, hdop, vdop, sat_inview, sat_used, direction, direction_bussola,
 							  time_us);
+
+  fclose(file);
+}
+
+void gps_text_log(char *string)
+{
+  FILE *file = NULL;
+
+  // Init Log File
+  file = fopen("gps_text_log", "a");
+  
+  if(!file)
+  {
+    perror("logfile fopen:");
+    return;
+  }
+  
+  fprintf(file, "%s\n", string);
 
   fclose(file);
 }

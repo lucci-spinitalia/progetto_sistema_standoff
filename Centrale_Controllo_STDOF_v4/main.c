@@ -621,9 +621,9 @@ int main()
                 arm_link[arm_request_index - 1].request_actual_position = 0;
                 arm_link[arm_request_index - 1].actual_position = atol(arm_buffer_temp.param.arm_command);
  
-                //arm_calc_xyz(&arm_position[0], &arm_position[1], &arm_position[2]);
-                //printf("Arm position: x - %f y - %f z - %f\n", arm_position[0], arm_position[1], arm_position[2]);
-
+                //arm_calc_xyz(&arm_position[0], &arm_position[1], &arm_position[2], arm_link[0].actual_position* 3.14 / (11 * arm_link[0].gear * 180),
+                //              arm_link[1].actual_position* 3.14 / (11 * arm_link[1].gear * 180), arm_link[2].actual_position* 3.14 / (11 * arm_link[2].gear * 180));
+                
                 if(socket_ccu_addr_dest.sin_port != htons(CCU_PORT_ARM))
                   socket_ccu_addr_dest.sin_port = htons(CCU_PORT_ARM);
   
@@ -744,10 +744,18 @@ int main()
         //printf("X: %3d   \tY: %3d   \tZ: %3d   \nbutton1: %3d   \tbutton2: %3d   \nbutton3: %3d   \tbutton4: %3d   \nbutton5: %3d   \n", 
         //        jse.stick_x, jse.stick_y, jse.stick_z, jse.button[0], jse.button[1], jse.button[2], jse.button[3], jse.button[4]);
         //printf("Y: %d\n", jse.stick_y);
-        //printf("Front Batt1 SOC: %f\n", convert_to_float(segway_status.list.front_base_batt_1_soc));
-        //printf("Front Batt2 SOC: %f\n", convert_to_float(segway_status.list.front_base_batt_2_soc));
-        //printf("Rear Batt1 SOC: %f\n", convert_to_float(segway_status.list.rear_base_batt_1_soc));
-        //printf("Rear Batt2 SOC: %f\n", convert_to_float(segway_status.list.rear_base_batt_2_soc));
+        /*printf("Front Batt1 SOC: %f\n", convert_to_float(segway_status.list.front_base_batt_1_soc));
+        printf("Front Batt2 SOC: %f\n", convert_to_float(segway_status.list.front_base_batt_2_soc));
+        printf("Rear Batt1 SOC: %f\n", convert_to_float(segway_status.list.rear_base_batt_1_soc));
+        printf("Rear Batt2 SOC: %f\n", convert_to_float(segway_status.list.rear_base_batt_2_soc));
+        printf("Front Batt1 Temp: %f\n", convert_to_float(segway_status.list.front_base_batt_1_temp_degC));
+        printf("Front Batt2 Temp: %f\n", convert_to_float(segway_status.list.front_base_batt_2_temp_degC));
+        printf("Rear Batt1 Temp: %f\n", convert_to_float(segway_status.list.rear_base_batt_1_temp_degC));
+        printf("Rear Batt2 Temp: %f\n", convert_to_float(segway_status.list.rear_base_batt_2_temp_degC));*/
+        //printf("Config input bitmap: %ld\n", segway_status.list.fram_config_bitmap);
+        printf("Config input bitmap: %ld\n", segway_status.list.fram_config_bitmap);
+        segway_status->list.operational_state)
+	printf("\033[1A");
         //printf("\033[8A");
       /*}
       else
@@ -944,7 +952,7 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
 
       // Change actuator
       if(jse->button[3])
-	  {
+      {
         change_actuator_request = 1;
       }
       if((!jse->button[3]) && change_actuator_request)
@@ -1057,8 +1065,17 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
         change_actuator_request = 0;
 
         if(arm_start() > 0)
+        {
           robotic_arm_selected = 1;
 
+          // Set ARM led
+          sprintf(buffer, "echo 1 > /sys/class/gpio/gpio%i/value", LED_ARM);
+          if(system(buffer) < 0)
+            perror("Set Arm led");
+
+          //message_log("stdof", "Pass to robotic arm");
+          printf("Pass to robotic arm\n");
+        }
         break;
       }
 
@@ -1395,40 +1412,56 @@ void arm_status_update(int socket_status, struct sockaddr_in *address, struct ww
   static unsigned char arm_state = ARM_REST;  // arm's state
   static unsigned char change_actuator_request = 0; // indicates when button has been released
   static unsigned char move_botton_request = 0;
+  static unsigned char set_origin_button_request = 0;
   static unsigned char homing_requested = 0;
   static unsigned char arm_led = 0;
   static unsigned char led_timer = 0;
   
   // Change actuator if press only the button 4
-  if(jse->button[3] && !jse->button[0] && !jse->button[1] && !jse->button[2])
+  if(jse->button[3] && !jse->button[0] && !jse->button[1] && !jse->button[2] && (arm_state == ARM_IDLE))
     change_actuator_request = 1;
 
   if((!jse->button[3]) && change_actuator_request)  //button released
   {
-    if(jse->stick_y > (JOY_MAX_VALUE - 5000))
+    if((jse->stick_y > (JOY_MAX_VALUE - 5000)) && (jse->stick_x < (JOY_MAX_VALUE - 5000)))
     {
       arm_state = ARM_BOX_REQUEST;
 #ifdef SHOW_ARM_STATE
       printf("ARM_BOX_REQUEST\n");
 #endif
-      change_actuator_request = 0;
     }
-    else if(jse->stick_y < (-JOY_MAX_VALUE + 5000))
+    else if((jse->stick_y < (-JOY_MAX_VALUE + 5000)) && (jse->stick_x < (JOY_MAX_VALUE - 5000)))
     {
       arm_state = ARM_PARK_REQUEST;
 #ifdef SHOW_ARM_STATE
       printf("ARM_PARK_REQUEST\n");
 #endif
-      change_actuator_request = 0;
     }
-    else
+    else if(jse->stick_x > (JOY_MAX_VALUE - 5000))
     {
       arm_state = ARM_HOMING_REQUEST;
 #ifdef SHOW_ARM_STATE
       printf("ARM_HOMING_REQUEST\n");
 #endif
-      change_actuator_request = 0;
     }
+    else
+    {
+      arm_state = ARM_IDLE;
+#ifdef SHOW_ARM_STATE
+      printf("ARM_IDLE\n");
+#endif
+      robotic_arm_selected = 0;
+    
+      // Unset ARM led
+      sprintf(buffer, "echo 0 > /sys/class/gpio/gpio%i/value", LED_ARM);
+      if(system(buffer) < 0)
+        perror("Set Arm led");
+
+      //message_log("stdof", "Pass to vehicle");
+      printf("Pass to vehicle\n");
+    }
+    
+    change_actuator_request = 0;
   }
   
   if((jse->button[0] || jse->button[1] || jse->button[2]) && !change_actuator_request)
@@ -1463,6 +1496,46 @@ void arm_status_update(int socket_status, struct sockaddr_in *address, struct ww
 #endif
       arm_state = ARM_STOP;
     }
+  }
+  
+  if(jse->button[4] && jse->button[0] && jse->button[1])
+    set_origin_button_request = 1;
+
+  if((!jse->button[4]) && set_origin_button_request)  //button released
+  {
+    printf("Warning: predefined point set!\n");
+    // store position
+    arm_set_command(1, "O", -4856);
+    arm_set_command(1, "p", -4856);
+    arm_set_command(1, "EPTR", 100);
+    arm_set_command_without_value(1, "VST(p,1)");
+
+    arm_set_command(2, "O", 1024215);
+    arm_set_command(2, "p", 1024215);
+    arm_set_command(2, "EPTR", 100);
+    arm_set_command_without_value(2, "VST(p,1)");
+    
+    arm_set_command(3, "O", 183759);
+    arm_set_command(3, "p", 183759);
+    arm_set_command(3, "EPTR", 100);
+    arm_set_command_without_value(3, "VST(p,1)");
+    
+    arm_set_command(4, "O", 2109);
+    arm_set_command(4, "p", 2109);
+    arm_set_command(4, "EPTR", 100);
+    arm_set_command_without_value(4, "VST(p,1)");
+    
+    arm_set_command(5, "O", 256000);
+    arm_set_command(5, "p", 256000);
+    arm_set_command(5, "EPTR", 100);
+    arm_set_command_without_value(5, "VST(p,1)");
+    
+    arm_set_command(6, "O", 256000);
+    arm_set_command(6, "p", 256000);
+    arm_set_command(6, "EPTR", 100);
+    arm_set_command_without_value(6, "VST(p,1)");
+
+    set_origin_button_request = 0;
   }
   
   switch(arm_state)
@@ -1624,7 +1697,7 @@ void arm_status_update(int socket_status, struct sockaddr_in *address, struct ww
       break;
 
     case ARM_AUTO_MOVE_ABORT:
-      if(status_acu == ACU_ARM_AUTO_MOVE)
+      if((status_acu == ACU_ARM_AUTO_MOVE) || (status_acu == ACU_ARM_HOMING))
       {
         // Send homing abort message to ACU_ADDRESS
         status_buffer = JOYSTICK_ABORT_AUTO_MOVE;
@@ -1635,6 +1708,8 @@ void arm_status_update(int socket_status, struct sockaddr_in *address, struct ww
       
           if(bytes_sent < 0)
             perror("sendto ACU on HOMING ABORT");
+          else
+            homing_requested = 0;
         }
         break;
       }
