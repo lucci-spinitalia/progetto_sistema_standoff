@@ -738,8 +738,8 @@ int main()
       {
 	segway_prescaler_update = 0;*/
         segway_status_update(&segway_status, socket_segway, &segway_address, &jse, JOY_MAX_VALUE);
-        //printf("Linear Velocity: %ld\n", segway_status.list.linear_vel_mps);
-        //printf("Yaw Rate. %ld\n", segway_status.list.inertial_z_rate_rps);
+        printf("Linear Velocity: %f\n", convert_to_float(segway_status.list.linear_vel_mps));
+        printf("Yaw Rate. %f\n", convert_to_float(segway_status.list.inertial_z_rate_rps));
         //printf("\033[2A");
         //printf("X: %3d   \tY: %3d   \tZ: %3d   \nbutton1: %3d   \tbutton2: %3d   \nbutton3: %3d   \tbutton4: %3d   \nbutton5: %3d   \n", 
         //        jse.stick_x, jse.stick_y, jse.stick_z, jse.button[0], jse.button[1], jse.button[2], jse.button[3], jse.button[4]);
@@ -753,9 +753,9 @@ int main()
         printf("Rear Batt1 Temp: %f\n", convert_to_float(segway_status.list.rear_base_batt_1_temp_degC));
         printf("Rear Batt2 Temp: %f\n", convert_to_float(segway_status.list.rear_base_batt_2_temp_degC));*/
         //printf("Config input bitmap: %ld\n", segway_status.list.fram_config_bitmap);
-        printf("Config input bitmap: %ld\n", segway_status.list.fram_config_bitmap);
-        segway_status->list.operational_state)
-	printf("\033[1A");
+        //printf("Config input bitmap: %ld\n", segway_status.list.fram_config_bitmap);
+
+        printf("\033[2A");
         //printf("\033[8A");
       /*}
       else
