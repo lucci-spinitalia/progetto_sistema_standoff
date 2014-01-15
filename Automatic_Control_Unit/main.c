@@ -52,6 +52,7 @@
 #ifdef LMS511
 #define LMS511_ADDRESS "192.168.1.104"
 #define LMS511_PORT 2111
+#define LMS511_MIN_DIST 1000 // in mm
 #define TIMEOUT_USEC_LMS511 250000
 #endif
 
@@ -143,6 +144,7 @@ int main()
   int socket_lms511= -1;
   struct sockaddr_in lms511_address;
   int lms511_count;
+  unsigned char lms511_dist_flag = 0;
   long lms511_timeout = 0;
   #endif
   
@@ -1097,7 +1099,7 @@ int main()
                 if(bytes_sent < 0)
                   perror("sendto gps");
 				  
-                if(rtb_status == RTB_tracking)
+                if((rtb_status == RTB_tracking) && (lms511_dist_flag == 0))
                 {
                   //printf("RTB_update\n");
                   //printf("Angle: %f Divergenza: %f\n",(RTBstatus.control_vector.angle_deg_north - info.direction), (RTBstatus.control_vector.angle_deg_north - info.direction)/180);
@@ -1421,6 +1423,7 @@ int main()
         break;
 
       case ACU_RETURN_TO_BASE:
+	  // obstacle detection
 	  #ifdef LMS511
         if(socket_lms511 > 0)
         {
@@ -1429,22 +1432,25 @@ int main()
             lms511_parse(socket_lms511);
 
             printf("\n\n\n");
-    		for(spot_count = 0; spot_count < lms511_info.spot_number; spot_count++)
+    		for(lms511_count = 0; lms511_count < lms511_info.spot_number; lms511_count++)
     		{
+              if(lms511_info.data.spot[lms511_count] < 1000)
+                lms511_dist_flag = 1;
+
     		  printf("\033[K");  // clear line for cursor right
-              if(lms511_info.data.spot[spot_count] > 1000)
+              if(lms511_info.data.spot[lms511_count] > 1000)
               {
                 printf("\033[1A");
                 printf("\033[K");  // clear line for cursor right							  
               }
 
-              if(lms511_info.data.spot[spot_count] > 2000)
+              if(lms511_info.data.spot[lms511_count] > 2000)
               {
                 printf("\033[1A");
                 printf("\033[K");  // clear line for cursor right
               }
 
-              if(lms511_info.data.spot[spot_count] > 3000)
+              if(lms511_info.data.spot[lms511_count] > 3000)
               {
                 printf("\033[1A");
                 printf("\033[K");  // clear line for cursor right
@@ -1452,13 +1458,13 @@ int main()
 							  
               printf("_");
 
-              if(lms511_info.data.spot[spot_count] > 1000)
+              if(lms511_info.data.spot[lms511_count] > 1000)
                 printf("\033[1B");
 
-              if(lms511_info.data.spot[spot_count] > 2000)
+              if(lms511_info.data.spot[lms511_count] > 2000)
                 printf("\033[1B");
 
-              if(lms511_info.data.spot[spot_count] > 3000)
+              if(lms511_info.data.spot[lms511_count] > 3000)
                 printf("\033[1B");
 	    	}
 		
