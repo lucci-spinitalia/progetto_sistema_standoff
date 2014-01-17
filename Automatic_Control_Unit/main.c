@@ -30,6 +30,8 @@
 #include "rover_rtb.h"
 #include "gps_generate.h"
 #include "rs232.h"
+#include "lms511_tcp.h"
+#include "kalman.h"
 
 #define LMS511
 #define GPS
@@ -191,6 +193,7 @@ int main()
   
   /* Gps */
 #ifdef GPS
+  // Gps rs232 device
   int gps_device = -1;
   char gps_device_buffer[RS232_BUFFER_SIZE];
   char *token;
@@ -199,12 +202,12 @@ int main()
   int it = 0;
     
   nmeaPARSER parser;
+  char gps_fix_flag = 0;
   char gps_simulate_flag = 0;
-  char gps_simulate_init = 0;
-  char gps_reset_flag = 0;
   
   struct timespec gps_timer_stop;
   
+  // Gps socket to communicate with CCU
   int gps_socket = -1;
   struct sockaddr_in gps_socket_addr_dest;
   struct sockaddr_in gps_socket_addr_src;
@@ -240,7 +243,6 @@ int main()
   double angle_threshold = 0;
   double rover_angle_error = 0;
   double rover_tracking_angle = 0;
-  double rover_distance = 0;
   int rtb_status = RTB_idle;
   
   
@@ -372,6 +374,8 @@ int main()
   {
     printf("Gps Init\t[OK]\n");
     nmea_parser_init(&parser);
+	
+	kalman_reset(0.0001, 0.0001, 1, 1, 0.01, 0, 0);
 	
 	gps_info.command = 0;
 	
@@ -882,9 +886,6 @@ int main()
           if(bytes_read > 0)
           {
 		    gps_device_buffer[bytes_read] = '\0';
-
-			// I use gps data for timinig, but I get the real message only
-			// when the flag is on
 			
             token = strtok(gps_device_buffer, "\n");
 
@@ -919,52 +920,51 @@ int main()
 
               gps_timer_stop.tv_nsec = 0;
 			  
-              // I can't generate gps message if there isn't data from segway. I use odometry every time but on gps_reset_flag and
-			  // when there's no signal from gps
-              if(((segway_status.list.operational_state == SEGWAY_TRACTOR) || (segway_status.list.operational_state == SEGWAY_STANDBY)) &&
-			       (!gps_reset_flag || (info.sig == NMEA_SIG_BAD) || (info.fix == NMEA_FIX_BAD)))
+              if((segway_status.list.operational_state == SEGWAY_TRACTOR) || (segway_status.list.operational_state == SEGWAY_STANDBY))
               {
-                // If gps_generate already init then generate gps information
-                if(gps_simulate_flag)
-                {
-			  
-                  gps_generate(convert_to_float(segway_status.list.linear_vel_mps) * 3.6, 
-                               info.magnetic_sensor_heading_true, 
-                               rover_elapsed_time_hs * 10000, gps_device_buffer, &info);
-                }
-                else
-                {
-                  gps_generate_init(NMEA_SIG_BAD, NMEA_FIX_BAD, old_lat, old_lon, 
-                                    convert_to_float(segway_status.list.linear_vel_mps) * 3.6,
-                                    old_elv, info.magnetic_sensor_heading_true, 0, 0, &info);
-                  /*gps_generate_init(NMEA_SIG_BAD, NMEA_FIX_BAD, info.lat, info.lon, 
-                                    convert_to_float(segway_status.list.linear_vel_mps) * 3.6,
-                                   old_elv, info.magnetic_sensor_heading_true, 0, 0, &info);*/
+			    // Estimate parameter from kalman filter
+				kalman_estimate(convert_to_float(segway_status.list.linear_vel_mps), 
+				                info.magnetic_sensor_heading_true, 
+								rover_elapsed_time_hs * 10000);
+					
+                if((info.sig == NMEA_SIG_BAD) || (info.fix == NMEA_FIX_BAD))
+				{
+                  // If gps_generate already init then generate gps information
+                  if(gps_simulate_flag)
+                  {
+                    gps_generate(convert_to_float(segway_status.list.linear_vel_mps) * 3.6, 
+                                 info.magnetic_sensor_heading_true, 
+                                 rover_elapsed_time_hs * 10000, gps_device_buffer, &info);
+                  }
+                  else
+                  {
+                    gps_generate_init(NMEA_SIG_BAD, NMEA_FIX_BAD, old_lat, old_lon, 
+                                      convert_to_float(segway_status.list.linear_vel_mps) * 3.6,
+                                      old_elv, info.magnetic_sensor_heading_true, 0, 0, &info);
+                    /*gps_generate_init(NMEA_SIG_BAD, NMEA_FIX_BAD, info.lat, info.lon, 
+                                      convert_to_float(segway_status.list.linear_vel_mps) * 3.6,
+                                     old_elv, info.magnetic_sensor_heading_true, 0, 0, &info);*/
 
-                  gps_simulate_flag = 1;
+                    gps_simulate_flag = 1;
+                  }
                 }
               }
-			  else if(((segway_status.list.operational_state == SEGWAY_TRACTOR) || (segway_status.list.operational_state == SEGWAY_STANDBY)) &&
-			           ((info.sig == NMEA_SIG_BAD) || (info.fix == NMEA_FIX_BAD)))
+			  
+			  if((info.sig != NMEA_SIG_BAD) || (info.fix != NMEA_FIX_BAD))
 			  {
-			    printf("No useful data\n");
-                continue; // no useful data
-			  }
-              else  // use gps data
-			  {
-			    printf("Use gps\n");
-				gps_reset_flag = 0;
-                gps_simulate_flag = 1;
-				
-                gps_generate_init(NMEA_SIG_BAD, NMEA_FIX_BAD, info.lat, info.lon, 
-                                  convert_to_float(segway_status.list.linear_vel_mps) * 3.6,
-                                  old_elv, info.magnetic_sensor_heading_true, 0, 0, &info);
-								  
-				// Check if I have to initialize the odometer data with real gps position. This condition
-				// is verified when it's time to compute odometer data for the first time. I don't traslate
-				// coord when I use odometer instead gps due to the signal loss
-				if(gps_simulate_init == 0)
+			    // if it's the first time that I have gps fix, then traslate the previuse points
+				// calculate by odometry
+                if(gps_fix_flag == 0)
 				{
+                  gps_simulate_flag = 1;
+				
+                  gps_generate_init(NMEA_SIG_BAD, NMEA_FIX_BAD, info.lat, info.lon, 
+                                    convert_to_float(segway_status.list.linear_vel_mps) * 3.6,
+                                    old_elv, info.magnetic_sensor_heading_true, 0, 0, &info);
+								  
+                  // Check if I have to initialize the odometer data with real gps position. This condition
+                  // is verified when it's time to compute odometer data for the first time. I don't traslate
+                  // coord when I use odometer instead gps due to the signal loss
 				  printf("Gps Traslate point\n");
                   RTB_traslate_point(GpsCoord2Double(info.lat), GpsCoord2Double(info.lon));
 				  gps_info.command = 2;
@@ -975,15 +975,20 @@ int main()
 				  gps_info.distance_from_previous = RTBstatus.distance;
 
                   bytes_sent = sendto(gps_socket, &gps_info, sizeof(gps_info), 0, (struct sockaddr *)&gps_socket_addr_dest, sizeof(gps_socket_addr_dest));
-
-				  gps_simulate_init = 1;
 				}
+				
+				// Update kalman filter
+				// First I have to transform gps data in decimal format
+				info.lon = GpsCoord2Double(info.lon);
+				info.lat = GpsCoord2Double(info.lat);
+				
+				kalman_update(&info.lon, &info.lat);
+				
+				// Return to gps format
+				info.lon = Double2GpsCoord(info.lon);
+				info.lat = Double2GpsCoord(info.lat);
 			  }
 
-              // If I run for 50 m from the start then 
-	          rover_distance += ((double)rover_elapsed_time_hs / 100) * convert_to_float(segway_status.list.linear_vel_mps);
-              //printf("Rover distance: %f time %f:\n", rover_distance, ((double)rover_elapsed_time_hs / 100));
-			  
 #ifdef GPS_DEBUG
             if(it > 0)
             {
@@ -1065,7 +1070,7 @@ int main()
                 /*gps_text_log(nmea_message_log);
                 nmea_message_log[0] = '\0';*/
                 gps_compare_log(GpsCoord2Double(gps_lat), GpsCoord2Double(gps_lon), 
-			                    GpsCoord2Double(info.lat), GpsCoord2Double(info.lon), 
+			                    GpsCoord2Double(info.lat), GpsCoord2Double(info.lon),
 			                    convert_to_float(segway_status.list.linear_vel_mps), pdop, hdop, vdop, sat_inview, sat_used, 
 	                            gps_direction, info.magnetic_sensor_heading_true, rover_elapsed_time_hs * 10000);
 		
@@ -1075,14 +1080,6 @@ int main()
 	            rtb_point_catch = 0;
                 rtb_status = RTB_update(GpsCoord2Double(info.lon), GpsCoord2Double(info.lat), (convert_to_float(segway_status.list.linear_vel_mps) * 3.6), 
                                         convert_to_float(segway_status.list.inertial_z_rate_rps), &rtb_point_catch);
-
-
-	            if(rover_distance > 50)
-                {
-				  printf("Rover distance > 50\n");
-	              rover_distance = 0;
-                  gps_reset_flag = 1;
-                }
 				
 			    gps_info.latitude = convert_to_ieee754(GpsCoord2Double(info.lat));
 			    gps_info.longitude = convert_to_ieee754(GpsCoord2Double(info.lon));
@@ -1371,7 +1368,7 @@ int main()
                   if(socket_ccu_addr_dest.sin_port != htons(CCU_PORT_ARM))
                     socket_ccu_addr_dest.sin_port = htons(CCU_PORT_ARM);
   
-                  sprintf((char *)ccu_buffer, "%i%ld ", (arm_request_index - 1), arm_link[arm_request_index - 1].actual_position);
+                  bytes_read = sprintf((char *)ccu_buffer, "%i%ld ", (arm_request_index - 1), arm_link[arm_request_index - 1].actual_position);
                   bytes_sent = sendto(socket_ccu, ccu_buffer, bytes_read, 0, (struct sockaddr *)&socket_ccu_addr_dest, sizeof(socket_ccu_addr_dest));
 
                   if(bytes_sent < 0)

@@ -154,7 +154,6 @@ int main()
   struct arm_frame arm_buffer_temp;
   unsigned char arm_request_index;
   char *arm_token_result;
-  double arm_position[3];
 
   /* Status client interface*/
   int socket_status = -1;
@@ -595,6 +594,7 @@ int main()
         // the message would be an information such position or warning
         bytes_read = recvfrom(socket_arm, &arm_buffer_temp, sizeof(struct arm_frame), 0, NULL, NULL);
 
+		//printf("Receive message from arm\n");
         if(bytes_read <= 0)
         {
           //message_log("arm_read", strerror(errno));
@@ -621,9 +621,6 @@ int main()
                 arm_link[arm_request_index - 1].request_actual_position = 0;
                 arm_link[arm_request_index - 1].actual_position = atol(arm_buffer_temp.param.arm_command);
  
-                //arm_calc_xyz(&arm_position[0], &arm_position[1], &arm_position[2], arm_link[0].actual_position* 3.14 / (11 * arm_link[0].gear * 180),
-                //              arm_link[1].actual_position* 3.14 / (11 * arm_link[1].gear * 180), arm_link[2].actual_position* 3.14 / (11 * arm_link[2].gear * 180));
-                
                 if(socket_ccu_addr_dest.sin_port != htons(CCU_PORT_ARM))
                   socket_ccu_addr_dest.sin_port = htons(CCU_PORT_ARM);
   
@@ -632,6 +629,7 @@ int main()
 
                 if(bytes_sent < 0)
                   perror("sendto ccu");
+
               }
               else if(arm_link[arm_request_index - 1].request_trajectory_status == 1)
               {
@@ -738,8 +736,8 @@ int main()
       {
 	segway_prescaler_update = 0;*/
         segway_status_update(&segway_status, socket_segway, &segway_address, &jse, JOY_MAX_VALUE);
-        printf("Linear Velocity: %f\n", convert_to_float(segway_status.list.linear_vel_mps));
-        printf("Yaw Rate. %f\n", convert_to_float(segway_status.list.inertial_z_rate_rps));
+        //printf("Linear Velocity: %f\n", convert_to_float(segway_status.list.linear_vel_mps));
+        //printf("Yaw Rate. %f\n", convert_to_float(segway_status.list.inertial_z_rate_rps));
         //printf("\033[2A");
         //printf("X: %3d   \tY: %3d   \tZ: %3d   \nbutton1: %3d   \tbutton2: %3d   \nbutton3: %3d   \tbutton4: %3d   \nbutton5: %3d   \n", 
         //        jse.stick_x, jse.stick_y, jse.stick_z, jse.button[0], jse.button[1], jse.button[2], jse.button[3], jse.button[4]);
@@ -755,7 +753,7 @@ int main()
         //printf("Config input bitmap: %ld\n", segway_status.list.fram_config_bitmap);
         //printf("Config input bitmap: %ld\n", segway_status.list.fram_config_bitmap);
 
-        printf("\033[2A");
+        //printf("\033[2A");
         //printf("\033[8A");
       /*}
       else

@@ -1,6 +1,7 @@
 #/bin/bash -x
-PROG_DIR="/home/lucciu/beaglebone_code/Common"
+PROG_DIR="/home/root/Common"
 SRC=$PROG_DIR/Source
 HEADER=$PROG_DIR/Include
+HEADER_COMMON=/usr/local/include
 
-gcc -Wall main.c $SRC/Gps/gps_generate.c $SRC/Rover/*.c $SRC/nmealib/src/*.c $SRC/Arm/arm_udp.c ${SRC}/Rs232/rs232.c ${SRC}/Socket_udp/socket_udp.c ${SRC}/Socket_can/socket_can_interface.c ${SRC}/Joystick/joystick.c ${SRC}/Segway/segway_udp_v2.c ${SRC}/Segway/segway_config.c -o centrale_controllo_stdof.o -ludev -lm -lrt -lGL -lGLU -lglut -pthread -I$HEADER
+gcc -Wall main.c $SRC/LMS511/lms511_tcp.c $SRC/Kalman/kalman.c $SRC/Gps/gps_generate.c $SRC/Rover/rover_rtb.c $SRC/Rover/rover_service.c $SRC/Rover/rover_plan.c $SRC/Rover/rover_obstacle_avoidance.c $SRC/nmealib/src/*.c $SRC/Arm/arm_udp.c ${SRC}/Rs232/rs232.c ${SRC}/Socket_tcp/socket_tcp.c ${SRC}/Socket_udp/socket_udp.c ${SRC}/Socket_can/socket_can_interface.c ${SRC}/Joystick/joystick.c ${SRC}/Segway/segway_udp_v2.c ${SRC}/Segway/segway_config.c -o centrale_controllo_stdof.o -lgsl -lgslcblas -ludev -lm -lrt -pthread -I$HEADER -I$HEADER_COMMON
