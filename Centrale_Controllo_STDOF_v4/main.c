@@ -131,7 +131,6 @@ int main()
   int socket_segway = -1;
   struct sockaddr_in segway_address;
   union segway_union segway_status;
-  unsigned char segway_prescaler_timeout = 0;
   unsigned char segway_check = 0;
   unsigned char segway_down = 1;
 
@@ -176,7 +175,8 @@ int main()
   fd_set rd, wr, er; // structure for select()
   struct timeval select_timeout;
   long current_timeout;
-  long time = 0;
+  long timeout_status = 0;
+  long timeout_segway = 0;
   
   //message_log("stdof", "Initializing stdof. . .");
   printf("Initializing stdof. . .\n");
@@ -427,7 +427,7 @@ int main()
         break;
 	      
       case ACU_RETURN_TO_BASE:
-        // send joystick command and wait the idle state
+        // read acu status and send its one. Wait for the idle state
         break;
 	    
       default:
@@ -558,7 +558,7 @@ int main()
           bytes_sent = sendto(socket_segway_acu, ccu_buffer, ccu_buffer_size, 0, (struct sockaddr *)&socket_segway_acu_addr_dest, sizeof(socket_segway_acu_addr_dest));
 
           if(bytes_sent < 0)
-            perror("sendto ccu");
+            perror("sendto acu");
         }
         continue;
       }
@@ -695,17 +695,16 @@ int main()
     }
     
     // searching for the segway and send joystick command to it
-    if(robotic_arm_selected == 0)
-    {
-      // Try to communicate with segway. If it is on tractor mode then I send the joystick
-      // command 
-      if(segway_prescaler_timeout >= 1)
+  
+      if(robotic_arm_selected == 0)
       {
-        segway_prescaler_timeout = 0;
+        // Try to communicate with segway. If it is on tractor mode then I send the joystick
+        // command 
 
         if((segway_status.list.operational_state < 3) || (segway_status.list.operational_state > 5))
         {
           //printf("Segway Init. . .\n");
+		  // I have to check if ACU are not using the segway before send init command
           if(status_acu != ACU_UNKNOWN)
             segway_init(socket_segway, &segway_address, &segway_status);
         }
@@ -714,9 +713,9 @@ int main()
 
         segway_check++;
 
-        if(segway_check > 3)
+        if(segway_check > 9)
         {
-          segway_check = 4;
+          segway_check = 10;
         
           // Send warning only the first time
           if(segway_down == 0)
@@ -726,15 +725,33 @@ int main()
             segway_status.list.operational_state = UNKNOWN;
           }
 
+		  // send new segway status
+          memcpy(&ccu_segway_status, &segway_status, sizeof(segway_status));
+
+          if((jse.stick_y < 1000) && (jse.stick_y > -1000))
+            ccu_segway_status.list.linear_vel_mps = 0;
+
+          if((jse.stick_x < 1000) && (jse.stick_x > -1000))
+            ccu_segway_status.list.inertial_z_rate_rps = 0;
+
+          segway_convert_param_message(ccu_segway_status, ccu_buffer, &ccu_buffer_size);
+
+          if(socket_ccu_addr_dest.sin_port != htons(CCU_PORT_SEGWAY))
+            socket_ccu_addr_dest.sin_port = htons(CCU_PORT_SEGWAY);
+
+          bytes_sent = sendto(socket_ccu, ccu_buffer, ccu_buffer_size, 0, (struct sockaddr *)&socket_ccu_addr_dest, sizeof(socket_ccu_addr_dest));
+  
+          if(bytes_sent < 0)
+            perror("sendto ccu");
+
+          bytes_sent = sendto(socket_segway_acu, ccu_buffer, ccu_buffer_size, 0, (struct sockaddr *)&socket_segway_acu_addr_dest, sizeof(socket_segway_acu_addr_dest));
+
+          if(bytes_sent < 0)
+            perror("sendto acu");
+			
           segway_down = 1;
         }
-      }
-      else
-        segway_prescaler_timeout++;
 
-      /*if(segway_prescaler_update > 4)
-      {
-	segway_prescaler_update = 0;*/
         segway_status_update(&segway_status, socket_segway, &segway_address, &jse, JOY_MAX_VALUE);
         //printf("Linear Velocity: %f\n", convert_to_float(segway_status.list.linear_vel_mps));
         //printf("Yaw Rate. %f\n", convert_to_float(segway_status.list.inertial_z_rate_rps));
@@ -755,27 +772,46 @@ int main()
 
         //printf("\033[2A");
         //printf("\033[8A");
-      /*}
+      }
       else
-        segway_prescaler_update++;*/
-      
-      //if(segway_send(socket_segway, &segway_address) < 0)
-      //  perror("segway_send");
-    }
-    else
-    {
-      if(step_request)
-        arm_step_position(socket_status, &socket_status_addr_dest, &jse, JOY_MAX_VALUE);
-      else
-        arm_status_update(socket_status, &socket_status_addr_dest, &jse, JOY_MAX_VALUE);
-    }
+      {
+        if(step_request)
+          arm_step_position(socket_status, &socket_status_addr_dest, &jse, JOY_MAX_VALUE);
+        else
+          arm_status_update(socket_status, &socket_status_addr_dest, &jse, JOY_MAX_VALUE);
+
+        // Send segway state to acu
+        timeout_segway++;
+        if((timeout_segway * current_timeout) >= TIMEOUT_USEC)
+        {
+          timeout_segway = 0;
+
+          ccu_segway_status.list.linear_vel_mps = 0;
+          ccu_segway_status.list.inertial_z_rate_rps = 0;
+
+          segway_convert_param_message(ccu_segway_status, ccu_buffer, &ccu_buffer_size);
+
+          if(socket_ccu_addr_dest.sin_port != htons(CCU_PORT_SEGWAY))
+            socket_ccu_addr_dest.sin_port = htons(CCU_PORT_SEGWAY);
+
+          bytes_sent = sendto(socket_ccu, ccu_buffer, ccu_buffer_size, 0, (struct sockaddr *)&socket_ccu_addr_dest, sizeof(socket_ccu_addr_dest));
+  
+          if(bytes_sent < 0)
+            perror("sendto ccu");
+
+          bytes_sent = sendto(socket_segway_acu, ccu_buffer, ccu_buffer_size, 0, (struct sockaddr *)&socket_segway_acu_addr_dest, sizeof(socket_segway_acu_addr_dest));
+
+          if(bytes_sent < 0)
+            perror("sendto acu");
+        }
+      }
     
-    time++;
-    if((time * current_timeout) >= TIMEOUT_USEC_STATUS)
+    timeout_status++;
+    if((timeout_status * current_timeout) >= TIMEOUT_USEC_STATUS)
     {
-      time = 0;
+      timeout_status = 0;
       //send data to acc
-      //printf("Timeout on %ld of %ld\n", (time * current_timeout), TIMEOUT_USEC_STATUS);
+      //printf("Timeout on %ld of %ld\n", (timeout_status * current_timeout), TIMEOUT_USEC_STATUS);
       status_buffer = JOYSTICK_NONE;
       
       if(socket_status > 0)
@@ -1352,6 +1388,8 @@ void arm_step_position(int socket_status, struct sockaddr_in *address, struct ww
 #ifdef SHOW_ARM_STATE
           printf("ARM_STEP_REQUEST\n");
 #endif
+          // Go into step_request modo cause I don't want homing
+		  // when change from an actuator to another
           arm_state = ARM_STEP_REQUEST;
           homing_requested = 0;
           robotic_arm_selected = 0;

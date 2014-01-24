@@ -34,6 +34,7 @@
 #include "kalman.h"
 
 #define LMS511
+//#define LMS511_DEBUG
 #define GPS
 //#define GPS_DEBUG
 //#define GPS_SIMUL
@@ -146,7 +147,8 @@ int main()
   int socket_lms511= -1;
   struct sockaddr_in lms511_address;
   int lms511_count;
-  unsigned char lms511_dist_flag = 0;
+  unsigned int lms511_dist_flag = 0;
+  unsigned char lms511_dist_index = 0;
   long lms511_timeout = 0;
   #endif
   
@@ -244,6 +246,7 @@ int main()
   double rover_angle_error = 0;
   double rover_tracking_angle = 0;
   int rtb_status = RTB_idle;
+  RTB_point *rtb_point_temp = NULL;
   
   
   // timer
@@ -442,117 +445,6 @@ int main()
   
   //message_log("stdof", "Run main program. . .");
   printf("Run main program. . .\n");
-  /*
-  long tetha0, tetha1, tetha2;
-  // move link 3 on y-z axis
-  double x,y,z;
-  double x0, y0, z0;
-  int i;
-
-  arm_calc_xyz(&x, &y, &z, -59 * M_PI / (arm_encoder_factor * arm_link[0].gear * 180),
-            2983 * M_PI / (arm_encoder_factor * arm_link[1].gear * 180),
-             -838 * M_PI / (arm_encoder_factor * arm_link[2].gear * 180));
-  arm_calc_tetha(112.333725, 318.253753, 835.046354, &tetha0, &tetha1, &tetha2);
-  printf("Theta0: %ld Theta1: %ld Theata2: %ld\n", tetha0,tetha1, tetha2); 
-
-  arm_calc_xyz(&x, &y, &z, tetha0 * M_PI / (arm_encoder_factor * arm_link[0].gear * 180),
-            tetha1 * M_PI / (arm_encoder_factor * arm_link[1].gear * 180),
-             tetha2 * M_PI / (arm_encoder_factor * arm_link[2].gear * 180));
-  printf("x: %f y: %f z: %f\n\n", x, y, z);*/
-
- /*   x = -22.913913;
-    y = -856.824226;
-    z = 473.655255 + 200;
-    for(i = 25; i <= 200; i += 25)
-    {
-      y += i;
-    
-      arm_calc_tetha(x, y, z, &tetha0, &tetha1, &tetha2);
-      printf("Theta0: %ld Theta1: %ld Theata2: %ld\n", tetha0, tetha1, tetha2); 
-      //arm_calc_xyz(&x, &y, &z, tetha0 * M_PI / (arm_encoder_factor * arm_link[0].gear * 180),
-      //           tetha1 * M_PI / (arm_encoder_factor * arm_link[1].gear * 180),
-      //           tetha2 * M_PI / (arm_encoder_factor * arm_link[2].gear * 180));
-      //printf("x: %f y: %f z: %f\n\n", x, y, z);
-    }*/
-
-  /*arm_calc_xyz(&x, &y, &z, 0 * M_PI / (arm_encoder_factor * arm_link[0].gear * 180),
-               679000 * M_PI / (arm_encoder_factor * arm_link[1].gear * 180),
-               215000 * M_PI / (arm_encoder_factor * arm_link[2].gear * 180));
-  printf("x: %f y: %f z: %f\n", x, y, z);
-    
-  arm_calc_tetha(x, y, z, &tetha0, &tetha1, &tetha2);
-  printf("Theta0: %ld Theta1: %ld Theata2: %ld\n", tetha0, tetha1, tetha2); 
-  arm_calc_xyz(&x, &y, &z, tetha0 * M_PI / (arm_encoder_factor * arm_link[0].gear * 180),
-             tetha1 * M_PI / (arm_encoder_factor * arm_link[1].gear * 180),
-             tetha2 * M_PI / (arm_encoder_factor * arm_link[2].gear * 180));
-  printf("x: %f y: %f z: %f\n\n", x, y, z);
-  
-  arm_calc_xyz(&x, &y, &z, 20721 * M_PI / (arm_encoder_factor * arm_link[0].gear * 180),
-               1088668 * M_PI / (arm_encoder_factor * arm_link[1].gear * 180),
-               261131 * M_PI / (arm_encoder_factor * arm_link[2].gear * 180));
-  printf("x: %f y: %f z: %f\n", x, y, z);
-    
-  arm_calc_tetha(x, y, z, &tetha0, &tetha1, &tetha2);
-  printf("Theta0: %ld Theta1: %ld Theata2: %ld\n", tetha0, tetha1, tetha2); 
-  arm_calc_xyz(&x, &y, &z, tetha0 * M_PI / (arm_encoder_factor * arm_link[0].gear * 180),
-             tetha1 * M_PI / (arm_encoder_factor * arm_link[1].gear * 180),
-             tetha2 * M_PI / (arm_encoder_factor * arm_link[2].gear * 180));
-  printf("x: %f y: %f z: %f\n", x, y, z);*/
-  /*arm_calc_tetha(0, 500 + 580 * cos(1.046), 580 * sin(1.046), &tetha0, &tetha1, &tetha2);
-      printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  arm_calc_tetha(0, 500 + 580 * cos(M_PI_4), 580 * sin(M_PI_4), &tetha0, &tetha1, &tetha2);
-  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  arm_calc_tetha(0, 500 + 580 * cos(0.523), 580 * sin(0.523), &tetha0, &tetha1, &tetha2);
-      printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  arm_calc_tetha(0, 1080, 0, &tetha0, &tetha1, &tetha2);
-      printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  arm_calc_tetha(0, 500 + 580 * cos(-0.523), 580 * sin(-0.523), &tetha0, &tetha1, &tetha2);
-      printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  arm_calc_tetha(0, 500 + 580 * cos(-M_PI_4), 580 * sin(-M_PI_4), &tetha0, &tetha1, &tetha2);
-      printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  arm_calc_tetha(0, 500 + 580 * cos(-1.046), 580 * sin(-1.046), &tetha0, &tetha1, &tetha2);
-      printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  arm_calc_tetha(0, 500, -580, &tetha0, &tetha1, &tetha2);
-      printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  */
-  /*arm_calc_tetha(0, 0, 1080, &tetha0, &tetha1, &tetha2);
-  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  arm_calc_tetha(0, 1080 * cos(1.046), 1080 * sin(1.046), &tetha0, &tetha1, &tetha2);
-  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  arm_calc_tetha(0, 1080 * cos(M_PI_4), 1080 * sin(M_PI_4), &tetha0, &tetha1, &tetha2);
-  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  arm_calc_tetha(0, 1080 * cos(0.523), 1080 * sin(0.523), &tetha0, &tetha1, &tetha2);
-  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  arm_calc_tetha(0, 1080, 0, &tetha0, &tetha1, &tetha2);
-  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  arm_calc_tetha(0, 1080 * cos(-0.523), 1080 * sin(-0.523), &tetha0, &tetha1, &tetha2);
-  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  arm_calc_tetha(0, 1080 * cos(-M_PI_4), 1080 * sin(-M_PI_4), &tetha0, &tetha1, &tetha2);
-  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  arm_calc_tetha(0, 1080 * cos(-1.046), 1080 * sin(-1.046), &tetha0, &tetha1, &tetha2);
-  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  arm_calc_tetha(0, 0, -1080, &tetha0, &tetha1, &tetha2);
-  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-*/  
-  /*arm_calc_tetha(1080, 0, 0, &tetha0, &tetha1, &tetha2);
-  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  arm_calc_tetha(1080 * sin(1.046), 1080 * cos(1.046), 0, &tetha0, &tetha1, &tetha2);
-  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  arm_calc_tetha(1080 * sin(M_PI_4), 1080 * cos(M_PI_4), 0, &tetha0, &tetha1, &tetha2);
-  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  arm_calc_tetha(1080 * sin(0.523), 1080 * cos(0.523), 0, &tetha0, &tetha1, &tetha2);
-  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  arm_calc_tetha(0, 1080, 0, &tetha0, &tetha1, &tetha2);
-  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  arm_calc_tetha(1080 * sin(-0.523), 1080 * cos(-0.523), 0, &tetha0, &tetha1, &tetha2);
-  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  arm_calc_tetha(1080 * sin(-M_PI_4), 1080 * cos(-M_PI_4), 0, &tetha0, &tetha1, &tetha2);
-  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  arm_calc_tetha(1080 * sin(-1.046), 1080 * cos(-1.046), 0, &tetha0, &tetha1, &tetha2);
-  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  arm_calc_tetha(-1080, 0, 0, &tetha0, &tetha1, &tetha2);
-  printf("Theta0: %f Theta1: %f Theata2: %f\n", (double)tetha0 / (11 * arm_link[0].gear), (double)tetha1 / (11 * arm_link[1].gear), (double)tetha2 / (11 * arm_link[2].gear)); 
-  */
  
   while(!done)
   { 
@@ -567,12 +459,6 @@ int main()
       FD_SET(socket_status, &rd);
       nfds = max(nfds, socket_status);
     }
-
-    if(socket_segway_ccu > 0)
-    {
-      FD_SET(socket_segway_ccu, &rd);
-      nfds = max(nfds, socket_segway_ccu);
-    }
     
 #ifdef GPS
     if(gps_device > 0)
@@ -586,28 +472,39 @@ int main()
     {
       case ACU_HOME:
       case ACU_IDLE:
-        //get data from gps
-        //send status to joystick (outside switch)
-        //read joystick status (outside switch)
+        //get segway data from ccu
+		//empty the arm buffer
         if((socket_arm > 0) && (robotic_arm_selected) && (arm_buffer_tx_empty == 0))
         {
           FD_SET(socket_arm, &wr);
           nfds = max(nfds, socket_arm);
         }
         
-        if((socket_segway > 0) && (robotic_arm_selected == 0) && (segway_buffer_tx_empty == 0))
+        if(socket_segway_ccu > 0)
         {
-          FD_SET(socket_segway, &wr);
-          nfds = max(nfds, socket_segway);  
+          FD_SET(socket_segway_ccu, &rd);
+          nfds = max(nfds, socket_segway_ccu);
+        } 
+        #ifdef LMS511_DEBUG
+        if(socket_lms511 > 0)
+        {
+          FD_SET(socket_lms511, &rd);
+          nfds = max(nfds, socket_lms511);  
+ 
+          if(lms511_buffer_tx_empty == 0)
+          {
+            FD_SET(socket_lms511, &wr);
+            nfds = max(nfds, socket_lms511);
+          }
         }
+		#endif
         break;
 
       case ACU_ARM_HOMING:
       case ACU_ARM_AUTO_MOVE:
       case ACU_ARM_AUTO_MOVE_ABORT:
-        //move arm to home position
-        //send status to joystick (outside switch)
-        //read joystick status (outside switch)
+        //move arm
+        //get segway data from ccu
         if((socket_arm > 0))
         {
           FD_SET(socket_arm, &rd);
@@ -619,9 +516,17 @@ int main()
             nfds = max(nfds, socket_arm);
           }
         }
+		
+        if(socket_segway_ccu > 0)
+        {
+          FD_SET(socket_segway_ccu, &rd);
+          nfds = max(nfds, socket_segway_ccu);
+        }
         break;
 
       case ACU_RETURN_TO_BASE:
+	    //communicate with lms511
+		//everything that can be done by ACU_RETURN_TO_BASE_ABORT
 	  #ifdef LMS511
         if(socket_lms511 > 0)
         {
@@ -632,17 +537,13 @@ int main()
           {
             FD_SET(socket_lms511, &wr);
             nfds = max(nfds, socket_lms511);
-         }
+          }
         }
 		#endif
 		// don't put a brake here
       case ACU_RETURN_TO_BASE_ABORT:
-        //arm homing
-        //get data from gps
-        //drive segway to home
-        //read sick
-        //send status to joystick (outside switch)
-        //read joystick status (outside switch)
+        //arm homing (it don't handle here. Arm homing will be require before enter in this state)
+        //drive segway
         if((socket_segway > 0) && (robotic_arm_selected == 0))
         {
           FD_SET(socket_segway, &rd);
@@ -688,7 +589,7 @@ int main()
                   inet_ntop(AF_INET, &socket_status_addr_dest_temp.sin_addr.s_addr, address_buffer_temp, sizeof(address_buffer_temp))) != 0)
         {
           // When arrive a command from another source, it can be forwarded only if the arm is in a safe state
-          if((status == ACU_HOME) || (status == ACU_IDLE))
+          if((status == ACU_HOME) || (status == ACU_IDLE) || (status == ACU_RETURN_TO_BASE))
             memcpy(&socket_status_addr_dest, &socket_status_addr_dest_temp, sizeof(struct sockaddr_in));
           else
             continue;
@@ -859,19 +760,6 @@ int main()
         continue;
       }
     }
-
-    if(socket_segway_ccu > 0)
-    {
-      if(FD_ISSET(socket_segway_ccu, &rd))
-      {
-        bytes_read = segway_read(socket_segway_ccu, &segway_status, ccu_buffer);
-
-        if(bytes_read <= 0)
-          perror("segway_read");
- 
-        continue;
-      }
-    }
     
 #ifdef GPS
     if(gps_device > 0)
@@ -956,6 +844,7 @@ int main()
 				// calculate by odometry
                 if(gps_fix_flag == 0)
 				{
+				  gps_fix_flag = 1;
                   gps_simulate_flag = 1;
 				
                   gps_generate_init(NMEA_SIG_BAD, NMEA_FIX_BAD, info.lat, info.lon, 
@@ -966,15 +855,31 @@ int main()
                   // is verified when it's time to compute odometer data for the first time. I don't traslate
                   // coord when I use odometer instead gps due to the signal loss
 				  printf("Gps Traslate point\n");
-                  RTB_traslate_point(GpsCoord2Double(info.lat), GpsCoord2Double(info.lon));
-				  gps_info.command = 2;
+                  RTB_traslate_point(GpsCoord2Double(info.lat), GpsCoord2Double(info.lon), rtb_point_temp);
+				  
+				  if(rtb_point_temp != NULL)
+                  {
+                    RTB_point *local_point = rtb_point_temp;
+					
+				    while(local_point->next != NULL)
+                    {
+				      gps_info.command = 1;
 
-				  gps_info.latitude = convert_to_ieee754(GpsCoord2Double(info.lat));
-				  gps_info.longitude = convert_to_ieee754(GpsCoord2Double(info.lon));
-				  gps_info.direction = convert_to_ieee754(info.magnetic_sensor_heading_true);
-				  gps_info.distance_from_previous = RTBstatus.distance;
+				      gps_info.latitude = convert_to_ieee754(local_point->y);
+				      gps_info.longitude = convert_to_ieee754(local_point->x);
+					
+                      if(local_point->previous != NULL)
+				        gps_info.distance_from_previous = local_point->distance_from_start - local_point->previous->distance_from_start;
+                      else
+                        gps_info.distance_from_previous = 0;
 
-                  bytes_sent = sendto(gps_socket, &gps_info, sizeof(gps_info), 0, (struct sockaddr *)&gps_socket_addr_dest, sizeof(gps_socket_addr_dest));
+                      local_point = local_point->next;
+					
+                      bytes_sent = sendto(gps_socket, &gps_info, sizeof(gps_info), 0, (struct sockaddr *)&gps_socket_addr_dest, sizeof(gps_socket_addr_dest));
+                    }
+
+				    free(rtb_point_temp);
+                  }
 				}
 				
 				// Update kalman filter
@@ -1081,22 +986,25 @@ int main()
                 rtb_status = RTB_update(GpsCoord2Double(info.lon), GpsCoord2Double(info.lat), (convert_to_float(segway_status.list.linear_vel_mps) * 3.6), 
                                         convert_to_float(segway_status.list.inertial_z_rate_rps), &rtb_point_catch);
 				
-			    gps_info.latitude = convert_to_ieee754(GpsCoord2Double(info.lat));
-			    gps_info.longitude = convert_to_ieee754(GpsCoord2Double(info.lon));
-			    gps_info.direction = convert_to_ieee754(info.magnetic_sensor_heading_true);
-                gps_info.distance_from_previous = convert_to_ieee754(RTBstatus.distance);
+				if((info.sig != NMEA_SIG_BAD) || (info.fix != NMEA_FIX_BAD))
+                {
+			      gps_info.latitude = convert_to_ieee754(GpsCoord2Double(info.lat));
+			      gps_info.longitude = convert_to_ieee754(GpsCoord2Double(info.lon));
+                  gps_info.direction = convert_to_ieee754(info.magnetic_sensor_heading_true);
+                  gps_info.distance_from_previous = convert_to_ieee754(RTBstatus.distance);
 				
-                if(rtb_point_catch == 1)
-                  gps_info.command = 1;
-                else
-                  gps_info.command = 0;
+                  if(rtb_point_catch == 1)
+                    gps_info.command = 1;
+                  else
+                    gps_info.command = 0;
 
-			    bytes_sent = sendto(gps_socket, &gps_info, sizeof(gps_info), 0, (struct sockaddr *)&gps_socket_addr_dest, sizeof(gps_socket_addr_dest));
+		          bytes_sent = sendto(gps_socket, &gps_info, sizeof(gps_info), 0, (struct sockaddr *)&gps_socket_addr_dest, sizeof(gps_socket_addr_dest));
 
-                if(bytes_sent < 0)
-                  perror("sendto gps");
+                  if(bytes_sent < 0)
+                    perror("sendto gps");
+                }
 				  
-                if((rtb_status == RTB_tracking) && (lms511_dist_flag == 0))
+                if((rtb_status == RTB_tracking) && (lms511_dist_flag <= 4))
                 {
                   //printf("RTB_update\n");
                   //printf("Angle: %f Divergenza: %f\n",(RTBstatus.control_vector.angle_deg_north - info.direction), (RTBstatus.control_vector.angle_deg_north - info.direction)/180);
@@ -1120,20 +1028,6 @@ int main()
                   if((fabs(rover_angle_error) < angle_threshold) && 
                      (fabs(rover_angle_error) > -angle_threshold))
                   {
-                    // Add a factor that depend on error
-                    //RTBstatus.control_values.speed = (1 - (fabs(RTBstatus.control_vector.angle_deg_north - info.magnetic_sensor_heading_true)) / 180) * cos((RTBstatus.control_vector.angle_deg_north - info.magnetic_sensor_heading_true) * M_PI / 180);
-                    					
-                    // Add a factor (90 / RTB_CONTROL_ANGLE) to the angle to obtain a fastest convergence
-                    /*if(rover_angle_error >= 0)
-                    {
-                      RTBstatus.control_values.heading = sin(min((RTBstatus.control_vector.angle_deg_north - info.magnetic_sensor_heading_true) * (180 / angle_threshold), 90) * M_PI / 180);
-                      //printf("Heading factor: %f\n", min((RTBstatus.control_vector.angle_deg_north - info.magnetic_sensor_heading_true) * (180 / angle_threshold), 90));
-                    }
-                    else
-                    {
-                      RTBstatus.control_values.heading = sin(max((RTBstatus.control_vector.angle_deg_north - info.magnetic_sensor_heading_true) * (180 / angle_threshold), -90) * M_PI / 180);
-                      //printf("Heading factor: %f\n", max((RTBstatus.control_vector.angle_deg_north - info.direction) * (180 / angle_threshold/2), -90));
-                    }*/
 					// heading value normalized to 1
 					RTBstatus.control_values.heading = RTB_CONTROL_ANGLE_PROP_GAIN * (rover_angle_error / angle_threshold);
 					RTBstatus.control_values.speed = RTB_CONTROL_SPEED_GAIN * (-max((1 - fabs(RTBstatus.control_values.heading)), RTB_CONTRO_MIN_SPEED));
@@ -1161,9 +1055,10 @@ int main()
                       else 
                         RTBstatus.control_values.heading = RTB_CONTROL_ANGLE_PROP_GAIN;
                     }
-					printf("Wrong direction\n");
-					printf("Angle Error: %f\n", rover_angle_error);
-					printf("Velocity: %f, Heading: %f\n", RTBstatus.control_values.speed, RTBstatus.control_values.heading);
+					
+					//printf("Wrong direction\n");
+					//printf("Angle Error: %f\n", rover_angle_error);
+					//printf("Velocity: %f, Heading: %f\n", RTBstatus.control_values.speed, RTBstatus.control_values.heading);
                   }
                 }  
                 else
@@ -1209,6 +1104,103 @@ int main()
             continue;
           }
         }
+		
+        if(socket_segway_ccu > 0)
+        {
+          if(FD_ISSET(socket_segway_ccu, &rd))
+          {
+            bytes_read = segway_read(socket_segway_ccu, &segway_status, ccu_buffer);
+
+            if(bytes_read <= 0)
+              perror("segway_read");
+ 
+            continue;
+          }
+        }
+		
+        #ifdef LMS511_DEBUG
+        if(socket_lms511 > 0)
+        {
+          if(FD_ISSET(socket_lms511, &rd))
+          {
+            lms511_parse(socket_lms511);
+
+            printf("3 \n2 \n1 \n0 ");
+			lms511_dist_flag = 0;
+			
+    		for(lms511_count = 0; lms511_count < lms511_info.spot_number; lms511_count++)
+    		{
+    		  printf("\033[K");  // clear line for cursor right
+              if(lms511_info.data.spot[lms511_count] > 1000)
+              {
+                printf("\033[1A");
+                printf("\033[K");  // clear line for cursor right							  
+              }
+
+              if(lms511_info.data.spot[lms511_count] > 2000)
+              {
+                printf("\033[1A");
+                printf("\033[K");  // clear line for cursor right
+              }
+
+              if(lms511_info.data.spot[lms511_count] > 3000)
+              {
+                printf("\033[1A");
+                printf("\033[K");  // clear line for cursor right
+              }
+						
+              if(lms511_info.data.spot[lms511_count] < 2000)
+			  {
+			    if(lms511_count == (lms511_dist_index + 1))
+                {
+                  lms511_dist_flag += 1;
+				  
+				  if(lms511_dist_flag > 4)
+				  {
+				    printf("+");
+				  
+                    //break;
+				  }
+				  else
+				    printf("!");
+                }
+                else
+				{
+				  printf("?");
+                  lms511_dist_flag = 1;
+				}
+				
+				lms511_dist_index = lms511_count;
+              }
+              else			  
+                printf("_");
+
+              if(lms511_info.data.spot[lms511_count] > 1000)
+                printf("\033[1B");
+
+              if(lms511_info.data.spot[lms511_count] > 2000)
+                printf("\033[1B");
+
+              if(lms511_info.data.spot[lms511_count] > 3000)
+                printf("\033[1B");
+				
+	    	}
+						  
+	    	printf("\033[3A\r");
+            continue;
+	      }
+	  
+          if(FD_ISSET(socket_lms511, &wr))
+          {
+            bytes_sent = lms511_send(socket_lms511, &lms511_address);
+
+            if(bytes_sent <= 0)
+              perror("Error on lms511_send");
+  
+            continue;
+          }
+	    }
+      #endif
         break;
 
       case ACU_ARM_AUTO_MOVE_ABORT:
@@ -1270,6 +1262,18 @@ int main()
           }
         }
 
+        if(socket_segway_ccu > 0)
+        {
+          if(FD_ISSET(socket_segway_ccu, &rd))
+          {
+            bytes_read = segway_read(socket_segway_ccu, &segway_status, ccu_buffer);
+
+            if(bytes_read <= 0)
+              perror("segway_read");
+ 
+            continue;
+          }
+        }
         break;
 
       case ACU_ARM_HOMING:
@@ -1417,7 +1421,20 @@ int main()
             continue;
           }
         }
-        break;
+        
+        if(socket_segway_ccu > 0)
+        {
+          if(FD_ISSET(socket_segway_ccu, &rd))
+          {
+            bytes_read = segway_read(socket_segway_ccu, &segway_status, ccu_buffer);
+
+            if(bytes_read <= 0)
+              perror("segway_read");
+ 
+            continue;
+          }
+        }
+		break;
 
       case ACU_RETURN_TO_BASE:
 	  // obstacle detection
@@ -1428,44 +1445,30 @@ int main()
           {
             lms511_parse(socket_lms511);
 
-            printf("\n\n\n");
+			lms511_dist_flag = 0;
+			  
     		for(lms511_count = 0; lms511_count < lms511_info.spot_number; lms511_count++)
     		{
-              if(lms511_info.data.spot[lms511_count] < 1000)
-                lms511_dist_flag = 1;
+              if(lms511_info.data.spot[lms511_count] < 2000)
+			  {
+			    if(lms511_count == (lms511_dist_index + 1))
+                {
+                  lms511_dist_flag += 1;
+				  
+                  if(lms511_dist_flag > 4)
+				  {
+				    printf("LMS511 Limit found\n");
+				  
+                    break;
+				  }
+                }
+                else
+                  lms511_dist_flag = 1;
 
-    		  printf("\033[K");  // clear line for cursor right
-              if(lms511_info.data.spot[lms511_count] > 1000)
-              {
-                printf("\033[1A");
-                printf("\033[K");  // clear line for cursor right							  
+				lms511_dist_index = lms511_count;
               }
-
-              if(lms511_info.data.spot[lms511_count] > 2000)
-              {
-                printf("\033[1A");
-                printf("\033[K");  // clear line for cursor right
-              }
-
-              if(lms511_info.data.spot[lms511_count] > 3000)
-              {
-                printf("\033[1A");
-                printf("\033[K");  // clear line for cursor right
-              }
-							  
-              printf("_");
-
-              if(lms511_info.data.spot[lms511_count] > 1000)
-                printf("\033[1B");
-
-              if(lms511_info.data.spot[lms511_count] > 2000)
-                printf("\033[1B");
-
-              if(lms511_info.data.spot[lms511_count] > 3000)
-                printf("\033[1B");
 	    	}
-		
-	    	printf("\033[3A");
+			
             continue;
 	      }
 	  
@@ -1486,7 +1489,7 @@ int main()
         //drive segway to home
         //read sick
         //check joystick status
-        if((socket_segway > 0) && (robotic_arm_selected == 0))
+        if(socket_segway > 0)
         {
           if(FD_ISSET(socket_segway, &rd))
           {
@@ -1590,58 +1593,33 @@ int main()
     {
       case ACU_HOME:
       case ACU_IDLE:
-#ifdef GPS_SIMUL
-        gps_timeout++;
+#ifdef LMS511_DEBUG
+        lms511_timeout++;
 
-        if(gps_timeout >= (1000000 / current_timeout)) // 1s
+        // If I'm not in measure state then login, enable measure
+        // mode and logout. So request the new status
+        if((lms511_timeout * current_timeout) >= (long)TIMEOUT_USEC_LMS511)
         {
-	  //printf("Yaw rate: %f\n", convert_to_float(segway_status.list.inertial_z_rate_rps));
-          gps_generate((float)convert_to_float(segway_status.list.linear_vel_mps) * 3.6, 
-                       (convert_to_float(segway_status.list.inertial_z_rate_rps) * gps_timeout * current_timeout) / 1000000) * 180 / M_PI, 
-                       gps_timeout * current_timeout, gps_buffer, &info);
-
-          //printf("Generate gps command \n%s\n", gps_buffer);
-
-          //printf("Yaw Rate: %f\n",((info.direction - old_direction)*100)/ rover_elapsed_time_hs);
-          if((old_direction != info.direction) || (old_lat != info.lat) || (old_lon != info.lon))
+          if(lms511_info.state != LMS511_MEASURE)
           {
-            RTB_update(GpsCoord2Double(info.lon), GpsCoord2Double(info.lat), (info.speed / 3.6), ((info.direction - old_direction)) / (gps_timeout * ((float)current_timeout)/1000000), NULL);
-            old_direction = info.direction;
-            old_lat = info.lat;
-            old_lon = info.lon;
+            lms511_login_as_auth_client();
+            lms511_start_measure();
+            lms511_logout();
+	  
+            lms511_query_status();
           }
-          
-          gps_timeout = 0;
+          else
+            lms511_scan_request();
+		
+          lms511_timeout = 0;
         }
+	
 #endif
         select_timeout.tv_sec = TIMEOUT_SEC;
         select_timeout.tv_usec = TIMEOUT_USEC_STATUS;
         break;
 
       case ACU_ARM_AUTO_MOVE_ABORT:
-#ifdef GPS_SIMUL
-        gps_timeout++;
-
-        if(gps_timeout >= (1000000 / current_timeout)) // 1s
-        {
-          gps_generate((float)convert_to_float(segway_status.list.linear_vel_mps) * 3.6, 
-                       (convert_to_float(segway_status.list.inertial_z_rate_rps) * gps_timeout * current_timeout) / 1000000) * 180 / M_PI, 
-                       gps_timeout * current_timeout, gps_buffer, &info);
-
-          //printf("Generate gps command \n%s\n", gps_buffer);
-
-          // If I have received all mandatory info (lat, lon, speed, direction) then update the rtb status
-          if((old_direction != info.direction) || (old_lat != info.lat) || (old_lon != info.lon))
-          {
-            RTB_update(GpsCoord2Double(info.lon), GpsCoord2Double(info.lat), (info.speed / 3.6), ((info.direction - old_direction)) / (gps_timeout * ((float)current_timeout)/1000000), NULL);
-            old_direction = info.direction;
-            old_lat = info.lat;
-            old_lon = info.lon;
-          }
-          
-          gps_timeout = 0;
-        }
-#endif
         if(arm_stop(0))
         {
           arm_automatic_motion_abort();
@@ -1658,28 +1636,6 @@ int main()
 
       case ACU_ARM_HOMING:
       case ACU_ARM_AUTO_MOVE:
-#ifdef GPS_SIMUL
-        gps_timeout++;
-
-        if(gps_timeout >= (1000000 / current_timeout)) // 1s
-        {
-          gps_generate((float)convert_to_float(segway_status.list.linear_vel_mps) * 3.6, 
-                       (convert_to_float(segway_status.list.inertial_z_rate_rps) * gps_timeout * current_timeout) / 1000000) * 180 / M_PI, 
-                       gps_timeout * current_timeout, gps_buffer, &info);
-
-          //printf("Generate gps command \n%s\n", gps_buffer);
-          // If I have received all mandatory info (lat, lon, speed, direction) then update the rtb status
-          if((old_direction != info.direction) || (old_lat != info.lat) || (old_lon != info.lon))
-          {
-            RTB_update(GpsCoord2Double(info.lon), GpsCoord2Double(info.lat), (info.speed / 3.6), ((info.direction - old_direction)) / (gps_timeout * ((float)current_timeout)/1000000), NULL);
-            old_direction = info.direction;
-            old_lat = info.lat;
-            old_lon = info.lon;
-          }
-       
-          gps_timeout = 0;
-        }
-#endif
         if(arm_homing_check())
         {
           //printf("Arm homing check\n");
@@ -1699,95 +1655,32 @@ int main()
         break;
 
       case ACU_RETURN_TO_BASE:
-#ifdef LMS511
-      lms511_timeout++;
-
-	// If I'm not in measure state then login, enable measure
-	// mode and logout. So request the new status
-    if((lms511_timeout * current_timeout) >= (long)TIMEOUT_USEC_LMS511)
-    {
-      if(lms511_info.state != LMS511_MEASURE)
-	  {
-        lms511_login_as_auth_client();
-	    lms511_start_measure();
-	    lms511_logout();
-	  
-	    lms511_query_status();
-	  }
-	  else
-	    lms511_scan_request();
+        // Init RTB in track mode
+        if(rtb_status != RTB_tracking)
+          RTB_set_mode(RTB_tracking);
 		
-	  lms511_timeout = 0;
-	}
-	
-#endif
-#ifdef GPS_SIMUL
-        gps_timeout++;
+#ifdef LMS511
+        lms511_timeout++;
 
-        if(gps_timeout >= (1000000 / current_timeout)) // 1s
+        // If I'm not in measure state then login, enable measure
+        // mode and logout. So request the new status
+        if((lms511_timeout * current_timeout) >= (long)TIMEOUT_USEC_LMS511)
         {
-          gps_generate((float)convert_to_float(segway_status.list.linear_vel_mps) * 3.6, 
-                       (convert_to_float(segway_status.list.inertial_z_rate_rps) * gps_timeout * current_timeout) / 1000000) * 180 / M_PI, 
-                       gps_timeout * current_timeout, gps_buffer, &info);
-
-          //printf("Generate gps command \n%s\n", gps_buffer);
-
-          //gps_log(GpsCoord2Double(info.lat), GpsCoord2Double(info.lon));
-          if(RTB_update(GpsCoord2Double(info.lon), GpsCoord2Double(info.lat), (info.speed / 3.6), 
-             (info.direction - old_direction) / (gps_timeout * ((float)current_timeout)/1000000), NULL) == RTB_tracking)
+          if(lms511_info.state != LMS511_MEASURE)
           {
-	    printf("RTB_update\n");
-            //printf("Angle: %f Divergenza: %f\n",(RTBstatus.control_vector.angle_deg_north - info.direction), (RTBstatus.control_vector.angle_deg_north - info.direction)/180);
-              
-            // if I'm in the right direction then activate speed value
-            if((fabs(RTBstatus.control_vector.angle_deg_north - info.direction) < RTB_CONTROL_ANGLE) && (fabs(RTBstatus.control_vector.angle_deg_north - info.direction) > -RTB_CONTROL_ANGLE))
-            {
-              // Add a factor that depend on error
-              RTBstatus.control_values.speed = (1 - (fabs(RTBstatus.control_vector.angle_deg_north - info.direction)) / 180) * cos((RTBstatus.control_vector.angle_deg_north - info.direction) * 3.14 / 180);
-
-              // Add a factor (90 / RTB_CONTROL_ANGLE) to the angle to obtain a fastest convergence
-              if((RTBstatus.control_vector.angle_deg_north - info.direction) >= 0)
-              {
-                RTBstatus.control_values.heading = sin(min((RTBstatus.control_vector.angle_deg_north - info.direction) * (90 / (RTB_CONTROL_ANGLE/2)), 90) * 3.14 / 180);
-                printf("Heading factor: %f\n", min((RTBstatus.control_vector.angle_deg_north - info.direction) * (90 / (RTB_CONTROL_ANGLE/2)), 90));
-              }
-              else
-              {
-                RTBstatus.control_values.heading = sin(max((RTBstatus.control_vector.angle_deg_north - info.direction) * (90 / (RTB_CONTROL_ANGLE/2)), -90) * 3.14 / 180);
-                printf("Heading factor: %f\n", max((RTBstatus.control_vector.angle_deg_north - info.direction) * (90 / (RTB_CONTROL_ANGLE/2)), -90));
-              }
-            }
-            else
-            {
-              RTBstatus.control_values.speed = 0;
-                
-              // Choose angle to turn. If error > 180° then turn over 360
-              if((RTBstatus.control_vector.angle_deg_north - info.direction) >= 0)
-              {
-                if((RTBstatus.control_vector.angle_deg_north - info.direction) <= 180)
-                  RTBstatus.control_values.heading = 1;
-                else 
-                  RTBstatus.control_values.heading = -1;
-              }
-              else
-              {
-                if((RTBstatus.control_vector.angle_deg_north - info.direction) >= -180)
-                  RTBstatus.control_values.heading = -1;
-                else 
-                  RTBstatus.control_values.heading = 1;
-              }
-            }
+            lms511_login_as_auth_client();
+            lms511_start_measure();
+            lms511_logout();
+	  
+            lms511_query_status();
           }
           else
-          {
-            RTBstatus.control_values.heading = 0;
-            RTBstatus.control_values.speed = 0;
-          }
-          
-          gps_timeout = 0;
+            lms511_scan_request();
+		
+          lms511_timeout = 0;
         }
+	
 #endif
-
         // Try to communicate with segway. If it is on tractor mode then I send the joystick
         // command 
         if(segway_prescaler_timeout >= 50)
@@ -1841,29 +1734,6 @@ int main()
         break;
 
       case ACU_RETURN_TO_BASE_ABORT:
-#ifdef GPS_SIMUL
-        gps_timeout++;
-
-        if(gps_timeout >= (1000000 / current_timeout)) // 1s
-        {
-          gps_generate((float)convert_to_float(segway_status.list.linear_vel_mps) * 3.6, 
-                       (convert_to_float(segway_status.list.inertial_z_rate_rps) * gps_timeout * current_timeout) / 1000000) * 180 / M_PI, 
-                       gps_timeout * current_timeout, gps_buffer, &info);
-
-          //printf("Generate gps command \n%s\n", gps_buffer);
-
-          // If I have received all mandatory info (lat, lon, speed, direction) then update the rtb status
-          if((old_direction != info.direction) || (old_lat != info.lat) || (old_lon != info.lon))
-          {
-            RTB_update(GpsCoord2Double(info.lon), GpsCoord2Double(info.lat), (info.speed / 3.6), ((info.direction - old_direction)) / (gps_timeout * ((float)current_timeout)/1000000), NULL);
-            old_direction = info.direction;
-            old_lat = info.lat;
-            old_lon = info.lon;
-          }
-          
-          gps_timeout = 0;
-        }
-#endif
         // Stop segway and return in idle state
         if(socket_segway > 0)
         {
@@ -1961,9 +1831,6 @@ void segway_status_update(union segway_union *segway_status, int socket, struct 
         printf("Segway in Tractor Mode\n");
 
         segway_previouse_state = segway_status->list.operational_state;
-
-        // Init RTB in track mode
-        RTB_set_mode(RTB_tracking);
       }
       
       bytes_sent = segway_motion_set(socket, segway_address, 
