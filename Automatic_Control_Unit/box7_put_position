@@ -1,0 +1,20 @@
+# Alzo il tool in un punto sicuro
+x,0.396213,0.582,0
+# Mi posiziono sul box
+-3.130738,0.405780,0.582,0
+# Ripongo l'oggetto prelevato
+x,x,0.432,0
+x,x,x,1
+# Prendo il coperchio
+x,x,0.582,1
+-3.314236,0.426869,x,1
+x,x,0.44,1
+x,x,x,0
+# Ripongo il coperchio
+x,x,0.582,0
+-3.130738,0.405780,x,0
+x,x,0.432,0
+x,x,x,1
+# Mi tengo pronto a prendere un tool
+x,x,0.582,1
+-3.114915,0.288028,0.582,1

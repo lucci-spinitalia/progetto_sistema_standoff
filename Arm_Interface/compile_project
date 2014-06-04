@@ -1,6 +1,0 @@
-#/bin/bash -x
-PROG_DIR="/home/root/Common"
-SRC=$PROG_DIR/Source
-HEADER=$PROG_DIR/Include
-
-gcc -Wall main.c $SRC/Arm/arm_udp.c ${SRC}/Rs232/rs232.c ${SRC}/Socket_udp/socket_udp.c -o arm_interface.o -ludev -lm -I$HEADER

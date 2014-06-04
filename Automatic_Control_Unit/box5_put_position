@@ -1,0 +1,10 @@
+# Alzo il tool in un punto sicuro
+x,0.322405,0.582,0
+# Mi posiziono sul box
+-2.754505,0.42,0.592,0
+# Ripongo il tool
+x,x,0.435,0
+x,x,x,1
+# Mi tengo pronto a prendere un tool
+x,x,0.582,1
+-3.114915,0.288028,0.582,1

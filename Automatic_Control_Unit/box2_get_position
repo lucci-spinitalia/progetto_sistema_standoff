@@ -1,0 +1,11 @@
+-2.886313,0.291978,0.582,1
+x,x,0.422,1
+# Prendo il tool
+x,x,x,0
+# Alzo il tool
+x,x,0.582,0
+# Vado nella posizione di prelievo (copiare da dinamic_position)
+# Posizione di sicurezza per portare il braccio in quella di prelievo
+0,x,x,0
+# Posizione di prelievo
+0,0.537217,0.250149,0
