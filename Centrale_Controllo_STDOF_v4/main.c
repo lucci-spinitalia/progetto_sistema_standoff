@@ -42,7 +42,7 @@
 
 /* Segway */
 #define SEGWAY_ADDRESS "192.168.1.40"
-#define SEGWAY_PORT 55
+#define SEGWAY_PORT 8080
 #define SCU_SEGWAY_PORT 8017  // where to send segway info
 #define CCU_SEGWAY_PORT 8003  // where to send segway info
 #define SEGWAY_INACTIVITY_TIMEOUT_SEC 2
@@ -668,7 +668,27 @@ int main()
           }
           
           if(joystick_rqst_rtb_flag == 0)
+          {
+            /*printf("status word 1: %lx\n",segway_status.list.fault_status_word1);
+            printf("status word 2: %lx\n",segway_status.list.fault_status_word2);
+            printf("status word 3: %lx\n",segway_status.list.fault_status_word3);
+            printf("status word 4: %lx\n",segway_status.list.fault_status_word4);
+            printf("mcu fault 0: %lx\n",segway_status.list.mcu_0_fault_status);
+            printf("mcu fault 1: %lx\n",segway_status.list.mcu_1_fault_status);
+            printf("mcu fault 2: %lx\n",segway_status.list.mcu_2_fault_status);
+            printf("mcu fault 3: %lx\n",segway_status.list.mcu_3_fault_status);*/
+           
+
+            /*segway_config_decode_arch_fault(segway_status.list.fault_status_word1, char *fault_message);
+            segway_config_decode_critical_fault(segway_status.list.fault_status_word1, char *fault_message);
+            segway_config_decode_comm_fault(segway_status.list.fault_status_word2, char *fault_message);
+            segway_config_decode_internal_fault(segway_status.list.fault_status_word2, char *fault_message);
+            segway_config_decode_sensors_fault(segway_status.list.fault_status_word3, char *fault_message);
+            segway_config_decode_bsa_fault(segway_status.list.fault_status_word3, char *fault_message);
+            segway_config_decode_mcu_fault(segway_status.list.fault_status_word3, char *fault_message);*/
+            
             segway_status_update(segway_socket, &segway_address, &segway_status,  scu_state, &jse, JOY_MAX_VALUE);
+          }
             
           // Check for rtb request
           if((jse.button[3]) && (jse.button[4]))
