@@ -31,10 +31,10 @@
 #include "arm_udp.h"
 
 /* Led */
-#define LED_READY 117
+#define LED_READY 7
 #define LED_RUN 48
 #define LED_STDBY 49
-#define LED_ARM 7
+#define LED_ARM 115
 
 /* Joystick */
 #define JOY_LOCAL_NAME "/dev/input/js0"

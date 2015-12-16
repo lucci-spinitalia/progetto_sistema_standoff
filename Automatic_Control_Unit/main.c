@@ -217,7 +217,10 @@ void signal_handler(int signum)
   close(scu_state_socket);
   close(arm_rs485_device);
   close(arm_udp_device);
-  fclose(arm_battery_file);
+  
+  if(arm_battery_file > 0)
+    fclose(arm_battery_file);
+
   close(arm_battery_fd);
   close(segway_socket);
   close(segway_from_joystick_socket);
@@ -2287,17 +2290,18 @@ int main(int argc, char **argv)
 
         if(arm_battery_fd == -1)
           arm_battery_fd = open("/sys/devices/platform/omap/tsc/ain5", O_RDONLY);
-  
+
         if(arm_battery_fd < 0)
-          printf("ADC file for battery\t[opened]\n");
-    
-        if(arm_battery_file == NULL)
+          printf("ADC file for battery\t[FAILED]\n");
+        else if(arm_battery_file == NULL)
+        {
           arm_battery_file = fdopen(arm_battery_fd, "r");
 
-        if(arm_battery_file == NULL)
-         perror("arm_batter_file");
+          if(arm_battery_file == NULL)
+            perror("arm_batter_file");
 
-        battery_read_flag = 1;
+          battery_read_flag = 1;
+        }
       }
       
       select_timeout.tv_sec = TIMEOUT_SEC;
