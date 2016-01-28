@@ -89,13 +89,13 @@
 #define STOP_TIMEOUT_USEC 50000
 #define RETURN_TO_BASE_TIMEOUT_SEC 300
 #define RETURN_TO_BASE_CTRL_TIMEOUT_USEC 100000
-#define REQUEST_TIMEOUT_USEC 50000
+#define REQUEST_TIMEOUT_USEC 80000  // è il valore più vicion a AUTOMOVE_TIMEOUT_USEC / 7 o INIT_POSITION_TIMEOUT_USEC / 7
 #define AUTOMOVE_TIMEOUT_USEC 500000
 #define HOMING_TIMEOUT_USEC 300000
 #define ARM_POSITION_TIMEOUT_USEC 100000
 #define ARM_BATTERY_TIMEOUT_SEC 1
 #define AIRPUMP_TIMEOUT_SEC 20
-#define INIT_POSITION_TIMEOUT_USEC 100000
+#define INIT_POSITION_TIMEOUT_USEC 500000
 #define SEGWAY_TIMEOUT_USEC 100000
 #define GPS_FIX_TIMEOUT_SEC 20
 
@@ -104,7 +104,6 @@
  then the value have to be:
  value = (1 meter / 30 seconds) * 50 ms = 0.033 * 50ms = 1.67 * 10^-3
  */
-#define ARM_JOINT_YZ_STEP_M 0.0009
 
 // Standoff Control Unit scu_state
 #define SCU_ARM_IDLE 0
@@ -129,6 +128,18 @@
 #define SCU_RQST_RESET_BASE 2
 #define SCU_RQST_LASER_ON 3
 #define SCU_RQST_LASER_OFF 4
+
+#define ARM_JOINT_YZ_STEP_M 0.0009
+
+// limiti di giunto in radianti
+float arm_upper_limit[] =
+  {
+  2, 2.46, 2.51, 3.14, 1.83, 5.18, 4
+  };
+float arm_lower_limit[] =
+  {
+  -3.5, -0.84, -2.59, -3.14, -1.55, -5.18, -1
+  };
 
 /* Macro */
 #undef max 
@@ -170,13 +181,18 @@ unsigned char scu_state_rqst_flag = 0;
 int arm_udp_device = -1;
 int arm_rs485_device = -1;
 unsigned char automove_timer_flag = 0;
+char automove_file[100];
+char *automove_file_ptr;
 unsigned char homing_timer_flag = 0;
 unsigned char stop_timer_flag = 0;
 int arm_query_link = -1;
+int actuator_wait = 0;
+
 char uart_token[] =
   {
-  13
+  '\r', '\n'
   };
+
 char arm_table_query = 0;
 char arm_table_running = 0;
 
@@ -218,7 +234,7 @@ unsigned char scu_rqst_rtb_flag = 0;
 unsigned char show_gps_state_flag = 0;
 unsigned char gps_log_flag = 0;
 
-float arm_tetha0, arm_y, arm_z;
+float arm_x, arm_y, arm_z;
 long motor_step[MOTOR_NUMBER];
 
 char *translate_state(int state_id)
@@ -339,8 +355,8 @@ int init_interpolation_mode(char *motion_file)
   if(arm_set_command_without_value(SMART_MOTOR_SYNC_INDEX, "MDCFG(3)") <= 0) // active settings
     return -1;
 
-  if(arm_set_command_without_value(0, "Q1") <= 0) // active settings
-    return -1;
+  //if(arm_set_command_without_value(0, "Q1") <= 0) // active settings
+  //  return -1;
 
   for(i = 0; i < SMART_MOTOR_NUMBER; i++)
   {
@@ -367,86 +383,91 @@ int init_interpolation_mode(char *motion_file)
   }
 
   /*if(arm_set_command_without_value(0, "RAC") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RAMPS") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RAT") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RBa") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RBe") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RBh") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RBk") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RBo") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RBs") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RBt") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RBv") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RDEA") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RDEL") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RDT") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "REA") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "REL") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "REPTR") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RFW") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RKA") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RKC") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RKCS") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RKD") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RKG") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RKI") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RKL") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RKP") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RKS") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RKV") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RMODE") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RPA") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RPC") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RPT") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RT") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RVA") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RVC") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RVL") <= 0) // active settings
-    return -1;
-  if(arm_set_command_without_value(0, "RVT") <= 0) // active settings
-    return -1;*/
+   return -1;
+   if(arm_set_command_without_value(0, "RAMPS") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RAT") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RBa") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RBe") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RBh") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RBk") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RBo") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RBs") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RBt") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RBv") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RDEA") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RDEL") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RDT") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RMODE") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "REL") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "REPTR") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RFW") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RKA") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RKC") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RKCS") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RKD") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RKG") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RKI") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RKL") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RKP") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RKS") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RKV") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RMODE") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RPA") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RPC") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RPT") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RT") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RVA") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RVC") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RVL") <= 0) // active settings
+   return -1;
+   if(arm_set_command_without_value(0, "RVT") <= 0) // active settings
+   return -1;*/
 
   if(arm_set_command_without_value(0, "G") <= 0)
     return -1;
 
   arm_table_query = 0;
   arm_table_running = 0;
-  generate_path(45, motion_file);
+
+  // Inizializzo il file
+  strcpy(automove_file, motion_file);
+  automove_file_ptr = motion_file;
+  //arm_automatic_motion_xyz_start(motion_file);
+  //generate_path(45, motion_file);
 
   return 0;
 }
@@ -462,8 +483,6 @@ int interpolation_status_request(int link_to_query)
     // If it's a smartmotor
     if((link_to_query <= MOTOR_NUMBER) && (link_to_query != 7))
       arm_set_command_without_value(link_to_query, "Q");
-    //else if((MOTOR_NUMBER > SMART_MOTOR_NUMBER) && (link_to_query == 7))
-    //  actuator_request_position();
   }
   else
   {
@@ -471,24 +490,25 @@ int interpolation_status_request(int link_to_query)
 
     for(automatic_query = 1; automatic_query <= SMART_MOTOR_NUMBER; automatic_query++)
       arm_set_command_without_value(automatic_query, "Q");
-
-    //if(MOTOR_NUMBER > SMART_MOTOR_NUMBER)
-    //  actuator_request_position();
   }
 
   return 1;
 }
 
-long calc_max_distance(long position_target[], long position_last[], int *max_distance_index)
+float calc_max_distance(long position_target[], long position_last[], long arm_gear[],
+    int *max_distance_index)
 {
   int motor_num = 0;
-  long max_distance;
-  long distance;
+  float max_distance;
+  float distance;
+  const float arm_encoder_factor = 0.09; // 360 / 4000
 
-  max_distance = max(labs(position_target[0] - position_last[0]),
-      labs(position_target[1] - position_last[1]));
+  max_distance = max(
+      fabs((position_target[0] - position_last[0]) * arm_encoder_factor / arm_gear[0]),
+      fabs((position_target[1] - position_last[1]) * arm_encoder_factor / arm_gear[1]));
 
-  if(labs(position_target[0] - position_last[0]) > labs(position_target[1] - position_last[1]))
+  if(fabs((position_target[0] - position_last[0]) * arm_encoder_factor / arm_gear[0])
+      > fabs((position_target[1] - position_last[1]) * arm_encoder_factor / arm_gear[1]))
     *max_distance_index = 0;
   else
     *max_distance_index = 1;
@@ -499,7 +519,10 @@ long calc_max_distance(long position_target[], long position_last[], int *max_di
   // velocità per tutti
   for(motor_num = 2; motor_num < SMART_MOTOR_NUMBER; motor_num++)
   {
-    max_distance = max(labs(position_target[motor_num] - position_last[motor_num]), max_distance);
+    max_distance = max(
+        fabs(
+            (position_target[motor_num] - position_last[motor_num]) * arm_encoder_factor
+                / arm_gear[motor_num]), max_distance);
 
     if(max_distance > distance)
     {
@@ -511,23 +534,23 @@ long calc_max_distance(long position_target[], long position_last[], int *max_di
   return max_distance;
 }
 
+// genera il percorso da inviare agli interpolatori smartmotor leggendo
+// una sola riga alla volta.
 int generate_path(int free_slots, char *motion_file)
 {
   int automatic_motion_flag = 0;
-  long time = 800; // diviso 8000 da il tempo in secondi
+  long time = 8000; // diviso 8000 da il tempo in secondi
   int max_vel = 15; // grad/s riferita alla velocità di giunto. Per tradurlo in velocità motore, bisognerebbe applicare il fattore di riduzione
   int motor_num = 0;
-  long max_distance;
+  float max_distance;
   int max_distance_index;
   int slots;
   static long position_last[SMART_MOTOR_NUMBER];
   long position_target[SMART_MOTOR_NUMBER];
+  long position_gear[SMART_MOTOR_NUMBER];
   float time_slice;
   const int max_slots = 43;
   int direction[SMART_MOTOR_NUMBER];
-
-  static int actuator_wait = 0;
-  static int actuator_state = -1;
 
   struct arm_rs485_frame buffer;
 
@@ -535,66 +558,108 @@ int generate_path(int free_slots, char *motion_file)
     return 0;
   else if(free_slots > 0)
   {
-    // aspetto ad inserire altri punti finchè la pinza non ha finito
-    if(motion_file == NULL)
+    automatic_motion_flag = arm_automatic_motion_xyz_start(motion_file);
+
+    if(automatic_motion_flag <= 0)
+      return -2;
+  }
+
+  if(((arm_link[6].actual_position != arm_link[6].position_target)
+      || (arm_link[6].trajectory_status != 0))
+      && (arm_link[6].timeout_counter < LINK_TIMEOUT_LIMIT))
+  {
+    if(arm_link[6].trajectory_status == 0)
     {
-      if(MOTOR_NUMBER > SMART_MOTOR_NUMBER)
+      if(motion_file != NULL)
+        actuator_wait = 2;
+      else
       {
-        //printf("Actual position: %ld, target position: %ld\n", arm_link[6].actual_position, arm_link[6].position_target);
-
-        if(actuator_wait)
+        if(actuator_wait == 0)
         {
-          if(free_slots != 45)
-          {
-            //printf("-------- WAITING FOR BRATH --------------\n");
-            return 0;
-          }
-          else
-          {
-            actuator_wait = 0;
+          actuator_wait = 1;
 
-            if(arm_link[6].timeout_counter < LINK_TIMEOUT_LIMIT)
-            {
-              if(arm_link[6].position_target > 0)
-                actuator_set_command(30000);
-              else
-                actuator_set_command(-30000);
-            }
+          for(motor_num = 0; motor_num < SMART_MOTOR_NUMBER; motor_num++)
+          {
+            buffer.arm_command_param.index = motor_num + 1;
+            buffer.arm_command_param.request_position = 0;
+            buffer.arm_command_param.request_trajectory_status = 0;
+            buffer.arm_command_param.request_interpolation_status = 0;
+            buffer.arm_command_param.request_error_status = 0;
 
-            return 0;
+            buffer.arm_command_param.command[0] = buffer.arm_command_param.index + 128;
+            buffer.arm_command_param.command[1] = 0xfb;
+            buffer.arm_command_param.command[2] = 0;
+            buffer.arm_command_param.command[3] = 0;
+            buffer.arm_command_param.command[4] = 0;
+            arm_rs485_load_tx(buffer);
+
+            buffer.arm_command_param.command[1] = 0xfa;
+            buffer.arm_command_param.command[2] = position_last[motor_num] & 0xFF;
+            buffer.arm_command_param.command[3] = (position_last[motor_num] >> 8) & 0xFF;
+            buffer.arm_command_param.command[4] = (position_last[motor_num] >> 16) & 0xFF;
+            buffer.arm_command_param.command[5] = (position_last[motor_num] >> 24) & 0xFF;
+            buffer.arm_command_param.command[6] = 0;
+            arm_rs485_load_tx(buffer);
           }
         }
+      }
 
-        if((arm_link[6].actual_position != arm_link[6].position_target)
-            && (arm_link[6].timeout_counter < LINK_TIMEOUT_LIMIT))
-        {
-          //printf("-------- WAITING FOR PINZA --------------\n");
-          return 0;
-        }
-        //else if(actuator_state != arm_link[6].position_target)
-        //  actuator_state = arm_link[6].position_target;
+      int check_run = 0;
+      for(motor_num = 0; motor_num < SMART_MOTOR_NUMBER; motor_num++)
+        check_run |= arm_link[motor_num].md_running;
+
+      if(check_run == 0)
+      {
+        arm_set_command(7, "PT", arm_link[6].position_target);
+        arm_set_command_without_value(7, "G");
       }
     }
 
-    automatic_motion_flag = arm_automatic_motion_xyz_start(motion_file);
+    arm_query_position(7);
+    arm_query_trajectory(7);
 
+    return 0;
+  }
 
-    if(automatic_motion_flag <= 0)
+  if(actuator_wait == 1)
+  {
+    // faccio ripartire i motori inizializzandoli alla posizione attuale
+    for(motor_num = 0; motor_num < SMART_MOTOR_NUMBER; motor_num++)
     {
-      //printf("ERROR: %s\n", strerror(errno));
-      return -2;
+      buffer.arm_command_param.index = motor_num + 1;
+      buffer.arm_command_param.request_position = 0;
+      buffer.arm_command_param.request_trajectory_status = 0;
+      buffer.arm_command_param.request_interpolation_status = 0;
+      buffer.arm_command_param.request_error_status = 0;
+
+      buffer.arm_command_param.command[0] = buffer.arm_command_param.index + 128;
+      buffer.arm_command_param.command[1] = 0xfb;
+      buffer.arm_command_param.command[2] = time & 0xff;
+      buffer.arm_command_param.command[3] = (time >> 8) & 0xff;
+      buffer.arm_command_param.command[4] = 0;
+      arm_rs485_load_tx(buffer);
+
+      buffer.arm_command_param.command[1] = 0xfa;
+      buffer.arm_command_param.command[2] = arm_link[motor_num].actual_position & 0xFF;
+      buffer.arm_command_param.command[3] = (arm_link[motor_num].actual_position >> 8) & 0xFF;
+      buffer.arm_command_param.command[4] = (arm_link[motor_num].actual_position >> 16) & 0xFF;
+      buffer.arm_command_param.command[5] = (arm_link[motor_num].actual_position >> 24) & 0xFF;
+      buffer.arm_command_param.command[6] = 0;
+      arm_rs485_load_tx(buffer);
+
+      if(arm_set_command_without_value(0, "G") <= 0)
+        return -1;
+
+      free_slots--;
     }
   }
 
   //printf("---------------- GENERATE PATH %d-----------------\n", free_slots);
 
-  if(motion_file != NULL)
+  if((motion_file != NULL) || (actuator_wait == 2))
   {
     for(motor_num = 0; motor_num < SMART_MOTOR_NUMBER; motor_num++)
       position_last[motor_num] = arm_link[motor_num].actual_position;
-
-    actuator_wait = 0;
-    actuator_state = -1;
   }
 
   for(slots = 0; slots < free_slots; slots++)
@@ -602,6 +667,7 @@ int generate_path(int free_slots, char *motion_file)
     for(motor_num = 0; motor_num < SMART_MOTOR_NUMBER; motor_num++)
     {
       position_target[motor_num] = arm_link[motor_num].position_target;
+      position_gear[motor_num] = arm_link[motor_num].gear;
 
       if(position_target[motor_num] < position_last[motor_num])
         direction[motor_num] = -1;
@@ -615,15 +681,16 @@ int generate_path(int free_slots, char *motion_file)
        direction[motor_num]);*/
     }
 
-    max_distance = calc_max_distance(position_target, position_last, &max_distance_index);
+    max_distance = calc_max_distance(position_target, position_last, position_gear,
+        &max_distance_index);
 
     // calcolo il tempo di percorrenza maggiore alla velocità massima
-    time = (max_distance * 720) / (max_vel * arm_link[max_distance_index].gear);
+    time = max_distance * 8000 / max_vel;
 
     //printf("position target[%d]: %ld, position last: %ld\n", max_distance_index, position_target[max_distance_index], position_last[max_distance_index]);
-    //printf("max_distance[%d]: %ld, time: %d\n", max_distance_index, max_distance, time);
+    //printf("max_distance[%d]: %f, time: %ld\n", max_distance_index, max_distance, time);
 
-    // Se la divisione precedente è minore di 1, allora devo compensare la mancanza di 
+    // Se la divisione precedente è minore di 1, allora devo compensare la mancanza di
     // precisione
     if(time == 0)
       time = 1;
@@ -647,7 +714,7 @@ int generate_path(int free_slots, char *motion_file)
 
     while(time_slice > 1)
     {
-      // calcolo il nuovo pezzo di tragliettoria in modo che il motore che ci mette di più 
+      // calcolo il nuovo pezzo di tragliettoria in modo che il motore
       // ci impieghi massimo 8 secondi (valore limite della tabella)
       for(motor_num = 0; motor_num < SMART_MOTOR_NUMBER; motor_num++)
       {
@@ -667,11 +734,12 @@ int generate_path(int free_slots, char *motion_file)
 
       // ricalcolo i nuovi tempi dopo aver aggiustato le cose
       // in teoria questo passaggio potrebbe essere saltato in quanto il tempo sarà sicuramente
-      // 65535, ovvero il limite massimo consentito. Questo perchè ho calcolato la distanza in 
+      // 65535, ovvero il limite massimo consentito. Questo perchè ho calcolato la distanza in
       // modo da rientrare nel suddetto intervallo di tempo
-      max_distance = calc_max_distance(position_target, position_last, &max_distance_index);
-      time = (max_distance * 720) / (max_vel * arm_link[max_distance_index].gear);
-      //printf("max_distance[%d]: %ld, time: %d\n", max_distance_index, max_distance, time);
+      max_distance = calc_max_distance(position_target, position_last, position_gear,
+          &max_distance_index);
+      time = max_distance * 8000 / max_vel;
+      //printf("slice max_distance[%d]: %ld, time: %d\n", max_distance_index, max_distance, time);
 
       // scrivo le nuove posizioni in tabella
       for(motor_num = 0; motor_num < SMART_MOTOR_NUMBER; motor_num++)
@@ -682,19 +750,12 @@ int generate_path(int free_slots, char *motion_file)
         buffer.arm_command_param.request_interpolation_status = 0;
         buffer.arm_command_param.request_error_status = 0;
 
-        /*if(motor_num == 1)
-         printf("time %x %x\n", time & 0xff, (time >> 8) & 0xff);*/
-
         buffer.arm_command_param.command[0] = buffer.arm_command_param.index + 128;
         buffer.arm_command_param.command[1] = 0xfb;
         buffer.arm_command_param.command[2] = time & 0xff;
         buffer.arm_command_param.command[3] = (time >> 8) & 0xff;
         buffer.arm_command_param.command[4] = 0;
         arm_rs485_load_tx(buffer);
-
-        /*if(motor_num == 1)
-         printf("pos %x %x %x %x\n", (position_target[motor_num] >> 24) & 0xFF, (position_target[motor_num] >> 16) & 0xFF,
-         (position_target[motor_num] >> 8) & 0xFF, position_target[motor_num] & 0xFF);*/
 
         buffer.arm_command_param.command[1] = 0xfa;
         buffer.arm_command_param.command[2] = position_target[motor_num] & 0xFF;
@@ -715,8 +776,9 @@ int generate_path(int free_slots, char *motion_file)
 
       // dentro il precedente for ho spostato le posiizoni target ed aggiornato quelle precedenti,
       // quindi devo rifare le stesse considerazioni per le traglietorie lunghe
-      max_distance = calc_max_distance(position_target, position_last, &max_distance_index);
-      time = (max_distance * 720) / (max_vel * arm_link[max_distance_index].gear);
+      max_distance = calc_max_distance(position_target, position_last, position_gear,
+          &max_distance_index);
+      time = max_distance * 8000 / max_vel;
 
       time_slice = (float) time / 8000;
     }
@@ -755,22 +817,11 @@ int generate_path(int free_slots, char *motion_file)
       //printf("position last[%d] %ld\n", motor_num, position_last[motor_num]);
     }
 
-    if(MOTOR_NUMBER > SMART_MOTOR_NUMBER)
-    {
-      if((arm_link[6].actual_position != arm_link[6].position_target)
-          && (arm_link[6].timeout_counter < LINK_TIMEOUT_LIMIT))
-      {
-        //printf("Actual position: %ld, target position: %ld\n", arm_link[6].actual_position, arm_link[6].position_target);
-        //printf("-------- STOP FOR PINZA --------------\n");
-        actuator_wait = 1;
-        break;
-      }
-    }
+    //automatic_motion_flag = arm_automatic_motion_xyz_start(NULL);
 
-    automatic_motion_flag = arm_automatic_motion_xyz_start(NULL);
+    //if(automatic_motion_flag <= 0)
+    break;
 
-    if(automatic_motion_flag <= 0)
-      break;
   }
 
   if(free_slots == -1)
@@ -808,9 +859,11 @@ int generate_path(int free_slots, char *motion_file)
     }
   }
 
-  if(motion_file != NULL)
+  if((motion_file != NULL) || (actuator_wait > 0))
   {
     //printf("GO!!\n");
+    actuator_wait = 0;
+
     if(arm_set_command_without_value(0, "G") <= 0)
       return -1;
   }
@@ -904,7 +957,7 @@ int main(int argc, char **argv)
   unsigned char arm_request_interpolation = 0;
   unsigned char arm_request_error_position = 0;
 
-  //struct timespec arm485_timer_start, arm485_timer_stop;
+//struct timespec arm485_timer_start, arm485_timer_stop;
 
   /* Arm battery interface */
   unsigned int battery_read_flag = 0;
@@ -947,12 +1000,12 @@ int main(int argc, char **argv)
 
   /* Gps */
 #ifdef GPS
-  // Gps rs232 device
+// Gps rs232 device
   char gps_device_buffer[RS232_BUFFER_SIZE];
   char *nmea_token;
   char nmea_message[256];
-  //char nmea_message_log[2048];
-  //int it = 0;
+//char nmea_message_log[2048];
+//int it = 0;
 
   nmeaPARSER parser;
   char gps_fix_flag = 0;
@@ -961,7 +1014,7 @@ int main(int argc, char **argv)
 
   struct timespec gps_timer_stop;
 
-  // Gps socket to communicate with CCU
+// Gps socket to communicate with CCU
   struct sockaddr_in gps_socket_addr_dest;
   struct sockaddr_in gps_socket_addr_src;
 
@@ -1000,7 +1053,7 @@ int main(int argc, char **argv)
   unsigned char rtb_active_flag = 0;
   unsigned char rtb_ctrl_timer_flag = 0;
 
-  // timer
+// timer
   long rover_time_start_hs = 0;
   long rover_time_stop_hs = 0;
   long rover_elapsed_time_hs = 0;
@@ -1106,7 +1159,7 @@ int main(int argc, char **argv)
     printf("Init rs485\t[OK]\n");
     fflush(stdout);
     /* Init Robotic Arm */
-    arm_init(0, 500, 10, 1500, 200, 1500, 100, 300, 1023);
+    arm_init(0, 500, 10, 1500, 200, 1500, 100, 300, 1023, arm_upper_limit, arm_lower_limit);
 
     // tuning motor 2 and 3
     arm_set_max_velocity(2, 700);
@@ -1142,7 +1195,6 @@ int main(int argc, char **argv)
     if(arm_set_command_without_value(6, "F") <= 0) // active settings
       return -1;
 
-    arm_start_xyz();
   }
 
   /* Status client interface */
@@ -1191,10 +1243,10 @@ int main(int argc, char **argv)
 #endif
 
 #ifdef GPS
-  // Select UART2_TX and set it as output
+// Select UART2_TX and set it as output
   gpio_generic_set_value("/sys/kernel/debug/omap_mux/spi0_d0", 11);
 
-  // Select UART1_RX and set it as input pulled up
+// Select UART1_RX and set it as input pulled up
   gpio_generic_set_value("/sys/kernel/debug/omap_mux/spi0_sclk", 39);
 
   gps_device = rs232_open("/dev/ttyO2", 4800, 'N', 8, 1);
@@ -1321,7 +1373,7 @@ int main(int argc, char **argv)
         printf("Init rs485\t[OK]\n");
         fflush(stdout);
         /* Init Robotic Arm */
-        arm_init(0, 500, 10, 1500, 200, 1500, 100, 300, 1023);
+        arm_init(0, 500, 10, 1500, 200, 1500, 100, 300, 1023, arm_upper_limit, arm_lower_limit);
 
         // tuning motor 2 and 3
         arm_set_max_velocity(2, 700);
@@ -1927,7 +1979,10 @@ int main(int argc, char **argv)
         {
           if(arm_crc_byte_buffer_crc_is_valid((__u8 *) arm_command.arm_command, bytes_read))
           {
-            arm_status_update(&scu_state, &scu_next_state, &scu_prev_state, arm_command);
+            // se ho una richiesta in sospeso, aspetto ad aggiornare lo stato del braccio
+            if((arm_request_position == 0) && (arm_request_trajectory == 0)
+                && (arm_request_interpolation == 0) && (arm_request_error_position == 0))
+              arm_status_update(&scu_state, &scu_next_state, &scu_prev_state, arm_command);
           }
         }
         else
@@ -1988,8 +2043,10 @@ int main(int argc, char **argv)
             printf("data_buffer_underflow: %d\n", (arm_buffer[2] >> 6) & 0x1);
             printf("md_running: %d\n", (arm_buffer[2] >> 7) & 0x1);*/
 
+            // mi segno a quanti motori ho richiesto lo stato
             arm_table_query |= (0x01 << (arm_query_link - 1));
 
+            // mi segno i motori che sono ancora in movimento
             if(arm_link[arm_query_link - 1].md_running)
               arm_table_running |= (0x01 << (arm_query_link - 1));
             else
@@ -2000,28 +2057,30 @@ int main(int argc, char **argv)
               //arm_query_position(0);
 
               arm_table_query = 0;
-              if(arm_link[arm_query_link - 1].md_running)
+              //if(arm_link[arm_query_link - 1].md_running)
+              //{
+              if((generate_path(arm_link[arm_query_link - 1].slots, NULL) == -2)
+                  && (arm_link[arm_query_link - 1].slots > 1))
               {
-                if((generate_path(arm_link[arm_query_link - 1].slots, NULL) == -2)
-                    && (arm_link[arm_query_link - 1].slots > 1))
-                  generate_path(-1, NULL);
-              }
-              else if(arm_table_running == 0)
-              {
-                // End of file reached
-                arm_stop(0);
-                automove_timer_flag = 0;
-                stop_timer_flag = 1;
-                /*arm_set_command_without_value(0, "OFF");
-                 arm_start_xyz();
+                generate_path(-1, NULL);
+                /*}
+                 else */if(arm_table_running == 0)
+                {
+                  // End of file reached
+                  arm_stop(0);
+                  automove_timer_flag = 0;
+                  stop_timer_flag = 1;
+                  /*arm_set_command_without_value(0, "OFF");
+                   arm_start_xyz();
 
-                 scu_state = scu_next_state;
+                   scu_state = scu_next_state;
 
-                 if(show_arm_state_flag)
-                 printf("scu state\t[scu_next_state = %i] in arm_rs485_device select(rd)\n", scu_next_state);*/
+                   if(show_arm_state_flag)
+                   printf("scu state\t[scu_next_state = %i] in arm_rs485_device select(rd)\n", scu_next_state);*/
 
-                if(scu_rqst_rtb_flag == 0)
-                  scu_state_rqst_flag = 1;
+                  if(scu_rqst_rtb_flag == 0)
+                    scu_state_rqst_flag = 1;
+                }
               }
             }
 
@@ -2037,7 +2096,7 @@ int main(int argc, char **argv)
             request_timer_flag = 0;
             request_elapsed_time_ns = 0;
 
-            //printf("Sync . . .\n"); 
+            //printf("Sync . . .\n");
 
             unsigned long sync_time = arm_buffer[1] | (arm_buffer[2] << 8) | (arm_buffer[3] << 16)
                 | (arm_buffer[4] << 24);
@@ -2054,23 +2113,23 @@ int main(int argc, char **argv)
         }
         else
         {
-          while((bytes_read = arm_rs485_unload_rx_filtered(arm_buffer, '\n')) > 0)
-          //while((bytes_read = arm_rs485_unload_rx_multifiltered(arm_buffer, uart_token, 1)) > 0)
-          //if((bytes_read = arm_rs485_unload_rx(arm_buffer)) > 0)
+          //while((bytes_read = arm_rs485_unload_rx_filtered(arm_buffer, '\n')) > 0)
+          while((bytes_read = arm_rs485_unload_rx_multifiltered(arm_buffer, uart_token, 2)) > 0)
           {
             //printf("position [%i]\n", arm_query_link);
-
-            request_timer_flag = 0;
-            request_elapsed_time_ns = 0;
 
             /**************** Filter message ******************************/
             // I expect at least one character with \r as trailer
             if(bytes_read < 2)
             {
-              printf("Message too short\n");
+              printf("Message too short: %x\n", arm_buffer[0]);
               continue;
             }
 
+            // queste variabili vanno resesttate dopo aver controllato eventuali
+            // errori sul bus
+            request_timer_flag = 0;
+            request_elapsed_time_ns = 0;
             arm_buffer[bytes_read] = 0;
 
             errno = 0;
@@ -2088,32 +2147,29 @@ int main(int argc, char **argv)
               //return 0;
               continue;
             }
-            else if(arm_token_number == arm_buffer)
-            {
-              if((strncmp(arm_buffer, "$s0", 3) != 0) && (strncmp(arm_buffer, "$s1", 3) != 0)
-                  && (strncmp(arm_buffer, "$s2", 3) != 0))
-              {
-                printf("Not a number at all!\n %s\n", arm_buffer);
+            /*else if(arm_token_number == arm_buffer)
+             {
+             if((strncmp(arm_buffer, "$s0", 3) != 0) && (strncmp(arm_buffer, "$s1", 3) != 0)
+             && (strncmp(arm_buffer, "$s2", 3) != 0))
+             {
+             printf("Not a number at all!\n %s\n", arm_buffer);
 
-                //return 0;
-                continue;
-              }
-            }
-            else if(*arm_token_number != '\n')
-            {
-              printf("----------------------------------------> Not a compleate number!!: \n%s\n",
-                  arm_buffer);
+             //return 0;
+             continue;
+             }
+             }
+             else if(*arm_token_number != '\n')
+             {
+             printf("----------------------------------------> Not a compleate number!!: \n%s\n",
+             arm_buffer);
 
-              //return 0;
-              continue;
-            }
+             //return 0;
+             continue;
+             }*/
 
             if(arm_request_position == 1)
             {
-              if(arm_query_link <= SMART_MOTOR_NUMBER)
-                arm_link[arm_query_link - 1].actual_position = arm_number_convertion_result;
-              else if(arm_number_convertion_result == 0)
-                actuator_get_status(&arm_link[arm_query_link - 1]);
+              arm_link[arm_query_link - 1].actual_position = arm_number_convertion_result;
 
               if(arm_link[arm_query_link - 1].position_initialized == 0)
                 arm_link[arm_query_link - 1].position_initialized = 1;
@@ -2134,10 +2190,9 @@ int main(int argc, char **argv)
                 for(i = 0; i < MOTOR_NUMBER; i++)
                   motor_step[i] = arm_link[i].actual_position;
 
-                arm_ee_xyz(motor_step, &arm_tetha0, &arm_y, &arm_z);
-                arm_tetha0 = arm_link[0].actual_position * M_PI / (180 * 11 * arm_link[0].gear);
-                printf("Actual Positions - x: %f deg y: %f m z: %f m                \n", arm_tetha0,
-                    arm_y, arm_z);
+                arm_ee_xyz(motor_step, &arm_x, &arm_y, &arm_z);
+                printf("Actual Positions - x: %f m y: %f m z: %f m                \n", arm_x, arm_y,
+                    arm_z);
                 for(query_link_count = 0; query_link_count < MOTOR_NUMBER; query_link_count++)
                 {
                   printf("Link%i: %ld step %f deg        \n", query_link_count + 1,
@@ -2154,8 +2209,7 @@ int main(int argc, char **argv)
             else if(arm_request_error_position == 1)
             {
               //if(arm_number_convertion_result != 0)
-                printf("REA[%d] = %ld\n", arm_query_link,
-                    arm_number_convertion_result);
+              printf("REA[%d] = %ld\n", arm_query_link, arm_number_convertion_result);
 
               /*if((arm_number_convertion_result > ARM_ERROR_POSITION) || (arm_number_convertion_result < -ARM_ERROR_POSITION))
                {
@@ -2370,7 +2424,7 @@ int main(int argc, char **argv)
           init_position_timeout_counter = 0;
           for(query_link_count = 1; query_link_count <= MOTOR_NUMBER; query_link_count++)
           {
-            if(((arm_position_initialized >> (query_link_count - 1)) && 0x01) == 0)
+            if(arm_link[arm_query_link - 1].position_initialized == 0)
               arm_query_position(query_link_count);
           }
         }
@@ -2432,131 +2486,50 @@ int main(int argc, char **argv)
         {
           automove_timeout_counter = 0;
 
-          //printf("automove timeout\n");
-
-          /*if((arm_link[0].slots == 45) && (arm_link[0].md_running == 1))
-           {
-           printf("Motion complete\n");
-
-           // End of file reached
-           arm_stop(0);
-           automove_timer_flag = 0;
-           stop_timer_flag = 1;
-           arm_set_command_without_value(0, "OFF");
-           arm_start_xyz();
-
-           // tuning motor 1
-           //arm_set_max_velocity(1, 300);
-
-           scu_state = scu_next_state;
-
-           if(show_arm_state_flag)
-           printf("scu state\t[scu_next_state = %i] in arm_rs485_device select(rd)\n", scu_next_state);
-
-           if(scu_rqst_rtb_flag == 0)
-           scu_state_rqst_flag = 1;
-           }
-           else*/
+          if(automove_file_ptr != NULL)
           {
-            interpolation_status_request(0);
-            //arm_query_position(7);
+            generate_path(45, automove_file_ptr);
+            automove_file_ptr = NULL;
           }
 
-          // RIMUOVI I COMMENTI QUI SOTTO
-          // Check if it has finished the motion
-          /*if(arm_automatic_motion_xyz_update(0) == 0)
-           {
-           if(automove_timer_flag == 4)
-           {
-           arm_link[4].position_target = (long)((double)90 / arm_encoder_factor + (double)arm_link[1].actual_position / arm_link[1].gear + (double)arm_link[2].actual_position / arm_link[2].gear) * arm_link[4].gear;
-
-           if(arm_link[4].position_target > LINK5_SLP)
-           arm_link[4].position_target = LINK5_SLP - arm_link[4].gear / arm_encoder_factor;
-
-           if(arm_link[4].position_target < LINK5_SLN)
-           arm_link[4].position_target = LINK5_SLN + arm_link[4].gear * arm_encoder_factor;
-
-           arm_set_command(5, "PT", arm_link[4].position_target);
-
-           // Set the motion
-           arm_link[5].position_target = (long)((double)90 / arm_encoder_factor + (double)arm_link[0].actual_position / arm_link[0].gear) * arm_link[5].gear;
-
-           if(arm_link[5].position_target > LINK6_SLP)
-           arm_link[5].position_target = LINK6_SLP - arm_link[5].gear / arm_encoder_factor;
-
-           if(arm_link[5].position_target < LINK6_SLN)
-           arm_link[5].position_target = LINK6_SLN + arm_link[5].gear / arm_encoder_factor;
-
-           arm_set_command(6, "PT", arm_link[5].position_target);
-
-
-           arm_set_command_without_value(0, "G");
-           }
-
-           //Query link's position
-           //arm_query_position(0);
-           }
-           else
-           {
-           while(arm_automatic_motion_xyz_update(0))
-           {
-           arm_link[MOTOR_NUMBER - 1].actual_position = 1;
-           // Read next position from file and set command
-           automove_timer_flag = arm_automatic_motion_xyz_start(NULL);
-
-           if(automove_timer_flag < 1)
-           {
-           printf("Motion complete\n");
-
-           // End of file reached
-           arm_stop(0);
-           automove_timer_flag = 0;
-           //stop_timer_flag = 1;
-           arm_set_command_without_value(0, "OFF");
-           arm_start_xyz();
-
-           // tuning motor 1
-           arm_set_max_velocity(1, 300);
-
-           scu_state = scu_next_state;
-
-           if(show_arm_state_flag)
-           printf("scu state\t[scu_next_state = %i] in arm_rs485_device select(rd)\n", scu_next_state);
-
-           if(scu_rqst_rtb_flag == 0)
-           scu_state_rqst_flag = 1;
-           break;
-           }
-           }
-           }*/
+          interpolation_status_request(0);
+          // }
         }
       }
       else
         automove_timeout_counter = 0;
 
-      if(request_elapsed_time_ns >= (long) REQUEST_TIMEOUT_USEC * 1000)
+      if(request_timer_flag == 1)
       {
-        request_timer_flag = 0;
-        request_elapsed_time_ns = 0;
-
-        if(arm_link[arm_query_link - 1].timeout_counter < LINK_TIMEOUT_LIMIT)
+        if(request_elapsed_time_ns >= (long) REQUEST_TIMEOUT_USEC * 1000)
         {
+          request_timer_flag = 0;
+
+          //if(arm_link[arm_query_link - 1].timeout_counter < LINK_TIMEOUT_LIMIT)
+          //{
           struct arm_rs485_frame arm_rs485_buffer;
           arm_rs485_get_last_message_write(&arm_rs485_buffer);
-          printf("Timeout[%d] on %s\n", arm_query_link, arm_rs485_buffer.arm_command_param.command);
-        }
+          printf("Timeout[%d] on %x%s\n. \tElapsed %ld ns\n\t# of timeout: %d\n", arm_query_link,
+              arm_rs485_buffer.arm_command_param.command[0],
+              &arm_rs485_buffer.arm_command_param.command[1], request_elapsed_time_ns,
+              arm_link[arm_query_link - 1].timeout_counter + 1);
+          //}
 
-        //clock_gettime(CLOCK_REALTIME, &request_timer_stop);
+          //clock_gettime(CLOCK_REALTIME, &request_timer_stop);
+          request_elapsed_time_ns = 0;
 
-        if(scu_state != SCU_ARM_OUT_OF_SERVICE)
-        {
+          arm_request_position = 0;
+          arm_request_trajectory = 0;
+          arm_request_interpolation = 0;
+          arm_request_error_position = 0;
+
           arm_link[arm_query_link - 1].timeout_counter++;
 
           if(arm_link[arm_query_link - 1].timeout_counter >= LINK_TIMEOUT_LIMIT)
           {
             arm_link[arm_query_link - 1].timeout_counter = LINK_TIMEOUT_LIMIT;
 
-            if(arm_out_of_service_enable_flag)
+            if((arm_out_of_service_enable_flag) && (scu_state != SCU_ARM_OUT_OF_SERVICE))
             {
               printf("Arm\t[out of service link %i]\n", arm_query_link);
               scu_state = SCU_ARM_OUT_OF_SERVICE;
@@ -2570,22 +2543,22 @@ int main(int argc, char **argv)
               if(scu_rqst_rtb_flag == 0)
                 scu_state_rqst_flag = 1;
             }
-            else
-            {
-              arm_link[arm_query_link - 1].actual_position = 0;
+            //else
+            //{
+            //arm_link[arm_query_link - 1].actual_position = 0;
 
-              if(arm_link[arm_query_link - 1].position_initialized == 0)
-                arm_link[arm_query_link - 1].position_initialized = 1;
+            if(arm_link[arm_query_link - 1].position_initialized == 0)
+              arm_link[arm_query_link - 1].position_initialized = 1;
 
-              arm_position_initialized |= (arm_link[arm_query_link - 1].position_initialized
-                  << (arm_query_link - 1));
+            arm_position_initialized |= (arm_link[arm_query_link - 1].position_initialized
+                << (arm_query_link - 1));
 
-              arm_link[arm_query_link - 1].trajectory_status = 0;
-            }
+            arm_link[arm_query_link - 1].trajectory_status = 0;
+            //}
           }
-        }
 
-        arm_query_link = -1;
+          arm_query_link = -1;
+        }
       }
 
       if(stop_timer_flag)
@@ -2599,14 +2572,19 @@ int main(int argc, char **argv)
           if(arm_check_trajectory())
           {
             stop_timer_flag = 0;
-            arm_rs485_flush_buffer_tx();
-            arm_set_command_without_value(0, "OFF");
+            //arm_rs485_flush_buffer_tx();
+
             arm_start_xyz();
+
+            arm_set_command_without_value(0, "OFF");
 
             if(scu_state != SCU_ARM_AUTO_MOVE_ABORT)
               scu_state = scu_next_state;
             else
+            {
+              printf("Automove aborted\n");
               scu_state = scu_prev_state;
+            }
 
             if(show_arm_state_flag)
               printf("scu state\t[%s] in stop_timer\n", translate_state(scu_state));
@@ -2748,7 +2726,7 @@ int main(int argc, char **argv)
               //printf("rtb_update: magnetic_sensor_heading_true %f vs %f lat %f vs %f lon %f vs %f\n", rtb_old_direction, info.magnetic_sensor_heading_true, rtb_old_lat, info.lat, rtb_old_lon, info.lon);
               /*gps_text_log(nmea_message_log);
                nmea_message_log[0] = '\0';*/
-              /*gps_compare_log(GpsCoord2Double(gps_lat), GpsCoord2Double(gps_lon), 
+              /*gps_compare_log(GpsCoord2Double(gps_lat), GpsCoord2Double(gps_lon),
                GpsCoord2Double(info.lat), GpsCoord2Double(info.lon),
                convert_to_float(segway_status.list.linear_vel_mps), PDOP, HDOP, vdop, sat_inview, sat_used,
                gps_direction, info.magnetic_sensor_heading_true, rover_elapsed_time_hs * 10000);*/
@@ -2774,7 +2752,7 @@ int main(int argc, char **argv)
                   //printf("Angle: %f Divergenza: %f\n",(RTBstatus.control_vector.angle_deg_north - info.direction), (RTBstatus.control_vector.angle_deg_north - info.direction)/180);
 
                   // if I'm in the right direction then speed value depends on angular error. The angle threshold depends
-                  // on the actual distance from last point with a min value equal to RTB_CONTROL_ANGLE_MIN. This allow to 
+                  // on the actual distance from last point with a min value equal to RTB_CONTROL_ANGLE_MIN. This allow to
                   // increase precision at lower distance. Angle_threshold also depends on 1/RTB_CONTROL_GAIN. This allow to
                   // have a proportional factor to adjust the formula, that is equal to control heading value with a RTB_CONTROL_GAIN
                   // factor. I can't add this variable to the final heading formula because I can't normalize after
@@ -3252,8 +3230,10 @@ void arm_status_update(unsigned char *arm_state, unsigned char *arm_next_state,
             motor_step[motor_index] = arm_link[motor_index].actual_position;
 
           arm_ee_xyz(motor_step, &x, &y, &z);
+
           arm_start_xyz();
           arm_query_position(0);
+
           *arm_state = SCU_ARM_MOVE;
           *arm_next_state = SCU_ARM_IDLE;
 
@@ -3554,18 +3534,18 @@ void arm_status_update(unsigned char *arm_state, unsigned char *arm_next_state,
            printf("scu state\t[SCU_ARM_AUTO_MOVE] in arm_status_update after ARM_RQST_HOME\n");*/
 
           // store position
-          arm_set_command(1, "O", -430870);
-          arm_set_command(1, "p", -430870);
+          arm_set_command(1, "O", -435300);
+          arm_set_command(1, "p", -435300);
           arm_set_command(1, "EPTR", 100);
           arm_set_command_without_value(1, "VST(p,1)");
 
-          arm_set_command(2, "O", 1152139);
-          arm_set_command(2, "p", 1152139);
+          arm_set_command(2, "O", 1143856);
+          arm_set_command(2, "p", 1143856);
           arm_set_command(2, "EPTR", 100);
           arm_set_command_without_value(2, "VST(p,1)");
 
-          arm_set_command(3, "O", -283872);
-          arm_set_command(3, "p", -283872);
+          arm_set_command(3, "O", -291687);
+          arm_set_command(3, "p", -291687);
           arm_set_command(3, "EPTR", 100);
           arm_set_command_without_value(3, "VST(p,1)");
 
@@ -3900,7 +3880,7 @@ void arm_status_update(unsigned char *arm_state, unsigned char *arm_next_state,
           }
           else if(arm_message.arm_command_param.header_uint == ARM_RQST_GET_TOOL_5)
           {
-            automatic_motion_flag = arm_automatic_motion_xyz_start(ARM_GET_BOX5_FILE);
+            //automatic_motion_flag = arm_automatic_motion_xyz_start(ARM_GET_BOX5_FILE);
             init_interpolation_mode(ARM_GET_BOX5_FILE);
             *arm_next_state = SCU_ARM_END_EFFECTOR_5;
           }
@@ -3985,23 +3965,32 @@ void arm_status_update(unsigned char *arm_state, unsigned char *arm_next_state,
       switch(arm_message.arm_command_param.header_uint)
       {
         case ARM_CMD_FIRST_TRIPLET:
-          y += arm_message.arm_command_param.value2 * ARM_JOINT_YZ_STEP_M;
+          //y += arm_message.arm_command_param.value2 * ARM_JOINT_YZ_STEP_M;
           z += arm_message.arm_command_param.value3 * ARM_JOINT_YZ_STEP_M;
-          arm_move_xyz(1, arm_message.arm_command_param.value1, y, z);
 
-          arm_query_position(0);
+          arm_move_xyz(1, arm_message.arm_command_param.value1,
+              arm_message.arm_command_param.value2 * ARM_JOINT_YZ_STEP_M, z);
+
+          arm_query_position(1);
+          arm_query_position(2);
+          arm_query_position(3);
+          arm_query_position(4);
+          arm_query_position(5);
+          arm_query_position(6);
           break;
 
         case ARM_CMD_SECOND_TRIPLET:
           arm_move_xyz(2, arm_message.arm_command_param.value1,
               arm_message.arm_command_param.value2, arm_message.arm_command_param.value3);
-          arm_query_position(0);
+          arm_query_position(4);
+          arm_query_position(5);
+          arm_query_position(6);
           break;
 
         case ARM_CMD_ACTUATOR:
           arm_move_xyz(3, arm_message.arm_command_param.value1,
               arm_message.arm_command_param.value2, arm_message.arm_command_param.value3);
-          arm_query_position(0);
+          arm_query_position(7);
           break;
 
         case ARM_CMD_STOP:
@@ -4239,11 +4228,12 @@ void arm_status_update(unsigned char *arm_state, unsigned char *arm_next_state,
 
         case ARM_RQST_ABORT:
           // flush tx buffer
-          arm_rs485_flush_buffer_tx();
+          //arm_rs485_flush_buffer_tx();
 
           // load stop command
           arm_stop(0);
           arm_automatic_motion_abort();
+
           arm_query_position(0);
           arm_query_trajectory(0);
           *arm_state = SCU_ARM_AUTO_MOVE_ABORT;
@@ -4356,7 +4346,7 @@ void gps_compare_log(double latitude, double longitude, double latitude_odometry
 {
   FILE *file = NULL;
 
-  // Init Log File
+// Init Log File
   file = fopen("gps_compare_log", "a");
 
   if(!file)
@@ -4376,7 +4366,7 @@ void gps_text_log(char *string)
 {
   FILE *file = NULL;
 
-  // Init Log File
+// Init Log File
   file = fopen("gps_log.txt", "a");
 
   if(!file)

@@ -979,6 +979,7 @@ void segway_status_update(int socket, struct sockaddr_in *segway_address,
       {
         case SCU_ARM_IDLE:
         case SCU_ARM_REST:
+        case SCU_ARM_OUT_OF_SERVICE:
           if(jse->button[2]) // Change actuator and move it into step position
             change_actuator_request = 1;
 
@@ -1113,7 +1114,7 @@ operate_with_segway:
 
         default:
 
-          printf("exe default status flag\n");
+          printf("exe default status flag: %d\n", scu_state);
           // Update LED
           if(arm_led == 1)
           {
