@@ -218,7 +218,10 @@ int main()
   printf("Initializing stdof. . .\n");
 
   while(eth_check_connection() != 1)
+  {
     printf("Waiting for network. . .\n");
+    sleep(1);
+  }
 
   /* Peripheral initialization */
 

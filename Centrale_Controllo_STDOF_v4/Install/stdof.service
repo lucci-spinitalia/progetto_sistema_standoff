@@ -1,0 +1,14 @@
+[Unit]
+Description=Stand-Off Application
+Wants=avahi-daemon.socket dropbear.service multi-user.target
+After=avahi-daemon.socket dropbear.service syslog.target multi-user.target
+DefaultDependencies=no
+
+[Service]
+Type=simple
+Restart=always
+ExecStart=/opt/spinitalia/centrale_controllo_stdof.o
+WorkingDirectory=/opt/spinitalia
+
+[Install]
+WantedBy=multi-user.target

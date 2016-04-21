@@ -1,0 +1,11 @@
+# Alzo il tool in un punto sicuro
+x,x,0.29612,2
+# Evito l'antennna
+0.15733,-0.44421,x,x
+# Mi posiziono sul box
+0.15761,-0.44246,x,x
+# Ripongo l'oggetto prelevato
+x,x,0.14612,x
+x,x,0.22612,1
+# Mi tengo pronto a prendere un tool
+-0.051,-0.42177,0.24612,x

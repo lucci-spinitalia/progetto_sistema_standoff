@@ -52,7 +52,7 @@
 
 /* Segway */
 #define SEGWAY_ADDRESS "192.168.1.40"
-#define SEGWAY_PORT 55
+#define SEGWAY_PORT 8080
 #define SEGWAY_INACTIVITY_TIMEOUT_US 1000000
 
 /* Arm */
@@ -94,10 +94,13 @@
 #define HOMING_TIMEOUT_USEC 300000
 #define ARM_POSITION_TIMEOUT_USEC 100000
 #define ARM_BATTERY_TIMEOUT_SEC 1
+#define ARM_BATTERY_FILTER_COUNT 20
 #define AIRPUMP_TIMEOUT_SEC 20
 #define INIT_POSITION_TIMEOUT_USEC 500000
 #define SEGWAY_TIMEOUT_USEC 100000
 #define GPS_FIX_TIMEOUT_SEC 20
+
+#define GPS_INDEX 0
 
 /* The joint_yz_step is the incremental value to add to y and z coordinates.
  If a joystick message arrive every 50ms and I want make 1 meter every 30 seconds
@@ -133,13 +136,13 @@
 
 // limiti di giunto in radianti
 float arm_upper_limit[] =
-  {
-  2, 2.46, 2.51, 3.14, 1.83, 5.18, 4
-  };
+{
+0.94, 2.46, 2.51, 3.14, 1.83, 5.18, 4
+};
 float arm_lower_limit[] =
-  {
-  -3.5, -0.84, -2.59, -3.14, -1.55, -5.18, -1
-  };
+{
+-3.5, -0.84, -2.59, -3.14, -1.55, -5.18, -1
+};
 
 /* Macro */
 #undef max 
@@ -149,7 +152,6 @@ float arm_lower_limit[] =
 #define min(x,y) ((x) < (y) ? (x) : (y))
 
 /* Prototype */
-int arm_battery_read(void);
 int eth_check_connection();
 int gpio_export(int pin_number);
 int gpio_set_value(int pin_number, int value);
@@ -189,9 +191,14 @@ int arm_query_link = -1;
 int actuator_wait = 0;
 
 char uart_token[] =
-  {
-  '\r', '\n'
-  };
+{
+'\r', '\n'
+};
+
+char gps_token[] =
+{
+'\n'
+};
 
 char arm_table_query = 0;
 char arm_table_running = 0;
@@ -233,6 +240,7 @@ unsigned char show_rtb_state_flag = 0;
 unsigned char scu_rqst_rtb_flag = 0;
 unsigned char show_gps_state_flag = 0;
 unsigned char gps_log_flag = 0;
+unsigned char gps_enable_flag = 1;
 
 float arm_x, arm_y, arm_z;
 long motor_step[MOTOR_NUMBER];
@@ -314,7 +322,9 @@ void signal_handler(int signum)
   // Garbage collection
   printf("Terminating program...\n");
 
-  close(gps_device);
+  if(gps_enable_flag)
+    close(gps_device);
+
   close(gps_socket);
   close(scu_state_socket);
   close(arm_rs485_device);
@@ -466,8 +476,6 @@ int init_interpolation_mode(char *motion_file)
   // Inizializzo il file
   strcpy(automove_file, motion_file);
   automove_file_ptr = motion_file;
-  //arm_automatic_motion_xyz_start(motion_file);
-  //generate_path(45, motion_file);
 
   return 0;
 }
@@ -916,6 +924,8 @@ int main(int argc, char **argv)
         show_gps_state_flag = 1;
       else if(strcmp(argv[argc_count], "--gps-log") == 0)
         gps_log_flag = 1;
+      else if(strcmp(argv[argc_count], "--no-gps") == 0)
+        gps_enable_flag = 0;
       else
       {
         printf("Usage:\n\t%s [option]\nOption:\n", argv[0]);
@@ -962,6 +972,9 @@ int main(int argc, char **argv)
   /* Arm battery interface */
   unsigned int battery_read_flag = 0;
   unsigned int battery_level = 0;
+  unsigned int battery_level_med = 3000;
+  long battery_level_accum = 0;
+  unsigned int battery_count = 0;
   char arm_battery_buffer[32];
 
   /* Segway */
@@ -1019,13 +1032,13 @@ int main(int argc, char **argv)
   struct sockaddr_in gps_socket_addr_src;
 
   struct
-    {
-      __u32 command;  // 0: nothing 1: add checkpoint 2: clear checkpoint
-      __u32 latitude;
-      __u32 longitude;
-      __u32 direction;
-      __u32 distance_from_previous;
-    } gps_info;
+  {
+    __u32 command;  // 0: nothing 1: add checkpoint 2: clear checkpoint
+    __u32 latitude;
+    __u32 longitude;
+    __u32 direction;
+    __u32 distance_from_previous;
+  } gps_info;
 
   unsigned char rtb_point_catch = 0;
   /*double gps_lon;
@@ -1083,7 +1096,10 @@ int main(int argc, char **argv)
   printf("Initializing. . .\n");
 
   while(eth_check_connection() != 1)
+  {
     printf("Waiting for network. . .\n");
+    sleep(1);
+  }
 
   /* Peripheral initialization */
 
@@ -1124,7 +1140,11 @@ int main(int argc, char **argv)
   if(laser_enable_flag)
   {
     if(lms511_open(&lms511_socket, &lms511_address, LMS511_ADDRESS, LMS511_PORT) == -1)
+    {
       perror("Init lms511 client");
+      close(lms511_socket);
+      lms511_socket = -1;
+    }
     else
     {
       printf("Laser Scanner\t[connected]\n");
@@ -1243,50 +1263,52 @@ int main(int argc, char **argv)
 #endif
 
 #ifdef GPS
+  if(gps_enable_flag)
+  {
 // Select UART2_TX and set it as output
-  gpio_generic_set_value("/sys/kernel/debug/omap_mux/spi0_d0", 11);
+    gpio_generic_set_value("/sys/kernel/debug/omap_mux/spi0_d0", 11);
 
 // Select UART1_RX and set it as input pulled up
-  gpio_generic_set_value("/sys/kernel/debug/omap_mux/spi0_sclk", 39);
+    gpio_generic_set_value("/sys/kernel/debug/omap_mux/spi0_sclk", 39);
 
-  gps_device = rs232_open("/dev/ttyO2", 4800, 'N', 8, 1);
+    gps_device = rs232_open("/dev/ttyO2", 4800, 'N', 8, 1, 1, 0, GPS_INDEX);
 
-  if(gps_device < 0)
-    perror("com_open");
-  else
-  {
-    printf("Gps Device\t[opened]\n");
-    nmea_parser_init(&parser);
-
-    //kalman_reset(0.0001, 0.0001, 1, 1, 0.01, 0, 0);
-
-    gps_info.command = 0;
-
-    gps_socket = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0);
-
-    if(gps_socket < 0)
-      perror("gps_socket");
-
-    bzero(&gps_socket_addr_src, sizeof(gps_socket_addr_src));
-    gps_socket_addr_src.sin_family = AF_INET;
-    gps_socket_addr_src.sin_port = htons(CCU_PORT_GPS);
-    gps_socket_addr_src.sin_addr.s_addr = htonl(INADDR_ANY);
-
-    if(bind(gps_socket, (struct sockaddr *) &gps_socket_addr_src, sizeof(gps_socket_addr_src))
-        == -1)
-      perror("gps_socket");
+    if(gps_device < 0)
+      perror("com_open");
     else
-      printf("Gps Info Socket\t[bind]\n");
+    {
+      printf("Gps Device\t[opened]\n");
+      nmea_parser_init(&parser);
 
-    bzero(&gps_socket_addr_dest, sizeof(gps_socket_addr_dest));
-    gps_socket_addr_dest.sin_family = AF_INET;
-    gps_socket_addr_dest.sin_addr.s_addr = inet_addr(CCU_ADDRESS);
-    gps_socket_addr_dest.sin_port = htons(CCU_PORT_GPS);
+      //kalman_reset(0.0001, 0.0001, 1, 1, 0.01, 0, 0);
+
+      gps_info.command = 0;
+
+      gps_socket = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0);
+
+      if(gps_socket < 0)
+        perror("gps_socket");
+
+      bzero(&gps_socket_addr_src, sizeof(gps_socket_addr_src));
+      gps_socket_addr_src.sin_family = AF_INET;
+      gps_socket_addr_src.sin_port = htons(CCU_PORT_GPS);
+      gps_socket_addr_src.sin_addr.s_addr = htonl(INADDR_ANY);
+
+      if(bind(gps_socket, (struct sockaddr *) &gps_socket_addr_src, sizeof(gps_socket_addr_src))
+          == -1)
+        perror("gps_socket");
+      else
+        printf("Gps Info Socket\t[bind]\n");
+
+      bzero(&gps_socket_addr_dest, sizeof(gps_socket_addr_dest));
+      gps_socket_addr_dest.sin_family = AF_INET;
+      gps_socket_addr_dest.sin_addr.s_addr = inet_addr(CCU_ADDRESS);
+      gps_socket_addr_dest.sin_port = htons(CCU_PORT_GPS);
+    }
+
+    clock_gettime(CLOCK_REALTIME, &gps_timer_stop);
+    rover_time_start_hs = (gps_timer_stop.tv_sec * 100 + (gps_timer_stop.tv_nsec / 10000000));
   }
-
-  clock_gettime(CLOCK_REALTIME, &gps_timer_stop);
-  rover_time_start_hs = (gps_timer_stop.tv_sec * 100 + (gps_timer_stop.tv_nsec / 10000000));
-
 #endif
 
   /* Init Rtb module */
@@ -1372,7 +1394,7 @@ int main(int argc, char **argv)
       {
         printf("Init rs485\t[OK]\n");
         fflush(stdout);
-        /* Init Robotic Arm */
+        // Init Robotic Arm
         arm_init(0, 500, 10, 1500, 200, 1500, 100, 300, 1023, arm_upper_limit, arm_lower_limit);
 
         // tuning motor 2 and 3
@@ -1419,10 +1441,13 @@ int main(int argc, char **argv)
     }
 
 #ifdef GPS
-    if(gps_device > 0)
+    if(gps_enable_flag)
     {
-      FD_SET(gps_device, &rd);
-      nfds = max(nfds, gps_device);
+      if(gps_device > 0)
+      {
+        FD_SET(gps_device, &rd);
+        nfds = max(nfds, gps_device);
+      }
     }
 #endif
 
@@ -1601,7 +1626,11 @@ int main(int argc, char **argv)
                 {
                   if(lms511_open(&lms511_socket, &lms511_address, LMS511_ADDRESS, LMS511_PORT)
                       == -1)
+                  {
                     perror("Init lms511 client");
+                    close(lms511_socket);
+                    lms511_socket = -1;
+                  }
                   else
                   {
                     printf("Laser Scanner\t[connected]\n");
@@ -1636,333 +1665,336 @@ int main(int argc, char **argv)
 
 #ifdef GPS
     /* Manage gps */
-    if(gps_device > 0)
+    if(gps_enable_flag)
     {
-      if(FD_ISSET(gps_device, &rd))
+      if(gps_device > 0)
       {
-        bytes_read = rs232_read(gps_device);
-        if((bytes_read > 0) || ((bytes_read < 0) && rs232_buffer_rx_full))
+        if(FD_ISSET(gps_device, &rd))
         {
-          bytes_read = rs232_unload_rx_filtered(gps_device_buffer, '\n');
-
-          if(bytes_read > 0)
+          bytes_read = rs232_read(gps_device, GPS_INDEX);
+          if((bytes_read > 0) || ((bytes_read < 0) && rs232_buffer_rx_full[GPS_INDEX]))
           {
-            gps_device_buffer[bytes_read] = '\0';
-
-            if(gps_log_flag)
-              gps_text_log(gps_device_buffer);
-
-            nmea_token = strtok(gps_device_buffer, "\n");
-
-            while(nmea_token != NULL)
+            while((bytes_read = rs232_unload_rx_multifiltered(gps_device_buffer, gps_token, 1,
+            GPS_INDEX)) > 0)
             {
-              sprintf(nmea_message, "%s\n", nmea_token);
-              nmea_parse(&parser, nmea_message, (int) strlen(nmea_message), &info);
-              nmea_token = strtok(NULL, "\n");
-            }
+              gps_device_buffer[bytes_read - 1] = *gps_token;
+              gps_device_buffer[bytes_read] = '\0';
 
-            // If I have received all mandatory info (lat, lon, speed, direction) then update the rtb scu_state
-            if((info.smask & GPRMC) && (info.smask & HCHDT) && (info.smask & GPGSA))
-            {
-              /*gps_lat = info.lat;
-               gps_lon = info.lon;
-               gps_direction = info.direction;
-               PDOP = info.PDOP;
-               HDOP = info.HDOP;
-               vdop = info.VDOP;
-               sat_inview = info.satinfo.inview;
-               sat_used = info.satinfo.inuse;*/
+              if(gps_log_flag)
+                gps_text_log(gps_device_buffer);
 
-              info.smask &= !(GPRMC | GPGGA | GPGSA | GPVTG | HCHDT | GPGSV);
+              nmea_token = strtok(gps_device_buffer, "\n");
 
-              /* Get time elapsed */
-              clock_gettime(CLOCK_REALTIME, &gps_timer_stop);
-
-              rover_time_stop_hs = (gps_timer_stop.tv_sec * 100
-                  + (gps_timer_stop.tv_nsec / 10000000));
-
-              if(rover_time_start_hs != rover_time_stop_hs)
+              while(nmea_token != NULL)
               {
-                rover_elapsed_time_hs = rover_time_stop_hs - rover_time_start_hs;
-                rover_time_start_hs = rover_time_stop_hs;
+                sprintf(nmea_message, "%s\n", nmea_token);
+                nmea_parse(&parser, nmea_message, (int) strlen(nmea_message), &info);
+                nmea_token = strtok(NULL, "\n");
               }
 
-              // if I have odometry avaible then I can run kalman_estimate
-              /*if((segway_status.list.operational_state == SEGWAY_TRACTOR) || (segway_status.list.operational_state == SEGWAY_STANDBY))
-               {
-               // Estimate parameter from kalman filter
-               //kalman_estimate(convert_to_float(segway_status.list.linear_vel_mps),
-               //                                 info.magnetic_sensor_heading_true,
-               //                                 rover_elapsed_time_hs * 10000);
-
-               if((info.sig == NMEA_SIG_BAD) || (info.fix == NMEA_FIX_BAD))
-               {
-               gps_fix_timer_hs = 0;
-
-               // If gps_generate is already init then generate gps information from odometry
-               if(gps_simulate_flag)
-               {
-               gps_generate(convert_to_float(segway_status.list.linear_vel_mps) * 3.6,
-               info.magnetic_sensor_heading_true,
-               rover_elapsed_time_hs * 10000, gps_device_buffer, &info);
-               }
-               else
-               {
-               gps_generate_init(NMEA_SIG_BAD, NMEA_FIX_BAD, rtb_old_lat, rtb_old_lon,
-               convert_to_float(segway_status.list.linear_vel_mps) * 3.6,
-               rtb_old_elv, info.magnetic_sensor_heading_true, 0, 0, &info);
-
-               gps_simulate_flag = 1;
-               }
-
-               if(show_gps_state_flag)
-               {
-               printf("\033[K");
-               printf("[Sig: Bad] [Fix: Bad] [lon %f lat%f]\r", GpsCoord2Double(info.lon), GpsCoord2Double(info.lat));
-               }
-               }
-               }*/
-
-              // if I have a good signal form gps then update the kalman filter
-              if(((info.sig != NMEA_SIG_BAD) || (info.fix != NMEA_FIX_BAD)) && (info.PDOP < 4)
-                  && (info.HDOP < 4))
+              // If I have received all mandatory info (lat, lon, speed, direction) then update the rtb scu_state
+              if((info.smask & GPRMC) && (info.smask & HCHDT) && (info.smask & GPGSA))
               {
-                if(gps_fix_timer_hs < GPS_FIX_TIMEOUT_SEC * 100)
-                  gps_fix_timer_hs += rover_elapsed_time_hs;
-                else
+                /*gps_lat = info.lat;
+                 gps_lon = info.lon;
+                 gps_direction = info.direction;
+                 PDOP = info.PDOP;
+                 HDOP = info.HDOP;
+                 vdop = info.VDOP;
+                 sat_inview = info.satinfo.inview;
+                 sat_used = info.satinfo.inuse;*/
+
+                info.smask &= !(GPRMC | GPGGA | GPGSA | GPVTG | HCHDT | GPGSV);
+
+                /* Get time elapsed */
+                clock_gettime(CLOCK_REALTIME, &gps_timer_stop);
+
+                rover_time_stop_hs = (gps_timer_stop.tv_sec * 100
+                    + (gps_timer_stop.tv_nsec / 10000000));
+
+                if(rover_time_start_hs != rover_time_stop_hs)
                 {
-                  // if it's the first time that I have gps fix, then traslate the previuse points
-                  // calculate by odometry
-                  if(gps_fix_flag == 0)
-                  {
-                    gps_fix_flag = 1;
-                    gps_simulate_flag = 1;
-
-                    gps_generate_init(NMEA_SIG_BAD, NMEA_FIX_BAD, info.lat, info.lon,
-                        convert_to_float(segway_status.list.linear_vel_mps) * 3.6, rtb_old_elv,
-                        info.magnetic_sensor_heading_true, 0, 0, &info);
-
-                    // Check if I have to initialize the odometer data with real gps position. This condition
-                    // is verified when it's time to compute odometer data for the first time. I don't traslate
-                    // coord when I use odometer instead gps due to the signal loss
-                    printf("Gps Traslate point\n");
-                    RTB_traslate_point(GpsCoord2Double(info.lat), GpsCoord2Double(info.lon),
-                        rtb_point_temp);
-
-                    if(rtb_point_temp != NULL)
-                    {
-                      RTB_point *local_point = rtb_point_temp;
-
-                      while(local_point->next != NULL)
-                      {
-                        gps_info.command = 1;
-
-                        gps_info.latitude = convert_to_ieee754(local_point->y);
-                        gps_info.longitude = convert_to_ieee754(local_point->x);
-
-                        if(local_point->previous != NULL)
-                          gps_info.distance_from_previous = local_point->distance_from_start
-                              - local_point->previous->distance_from_start;
-                        else
-                          gps_info.distance_from_previous = 0;
-
-                        local_point = local_point->next;
-
-                        bytes_sent = sendto(gps_socket, &gps_info, sizeof(gps_info), 0,
-                            (struct sockaddr *) &gps_socket_addr_dest,
-                            sizeof(gps_socket_addr_dest));
-                      }
-
-                      free(rtb_point_temp);
-                    }
-                  }
-
-                  if(show_gps_state_flag)
-                  {
-                    printf("\033[K");
-                    switch(info.sig)
-                    {
-                      case 0:
-                        printf("[Sig: Invalid] ");
-                        break;
-                      case 1:
-                        printf("[Sig: Fix] ");
-                        break;
-                      case 2:
-                        printf("[Sig: Differential] ");
-                        break;
-                      case 3:
-                        printf("[Sig: Sensitive] ");
-                        break;
-                      default:
-                        printf("[Sig: Invalid] ");
-                        break;
-                    }
-
-                    switch(info.fix)
-                    {
-                      case 1:
-                        printf("[Fix: not available] ");
-                        break;
-                      case 2:
-                        printf("[Fix: 2d] ");
-                        break;
-                      case 3:
-                        printf("[Fix: 3d] ");
-                        break;
-                      default:
-                        printf("[Fix: unknonw] ");
-                        break;
-                    }
-
-                    printf("[lon %f lat%f]\r", GpsCoord2Double(info.lon),
-                        GpsCoord2Double(info.lat));
-                  }
-
-                  // Update kalman filter
-                  // First I have to transform gps data in decimal format
-                  /*info.lon = GpsCoord2Double(info.lon);
-                   info.lat = GpsCoord2Double(info.lat);
-
-                   kalman_update(&info.lon, &info.lat);
-
-                   // Return to gps format
-                   info.lon = Double2GpsCoord(info.lon);
-                   info.lat = Double2GpsCoord(info.lat);*/
-                }
-              }
-
-#ifdef GPS_DEBUG
-              if(it > 0)
-              {
-                printf("\033[22A");
-              }
-              else
-              it++;
-
-              printf("Time: %i/%i/%i %i:%i:%i.%i                    \n", info.utc.day, info.utc.mon + 1, info.utc.year + 1900, info.utc.hour, info.utc.min, info.utc.sec, info.utc.hsec);
-              if((info.smask & GPGGA) || (info.smask & GPRMC))
-              {
-                //info.smask &= !GPGGA;
-                switch(info.sig)
-                {
-                  case 0:
-                  printf("Signal: INVALID                    \n");
-                  break;
-                  case 1:
-                  printf("Signal: FIX                    \n");
-                  break;
-                  case 2:
-                  printf("Signal: DIFFERENTIAL                    \n");
-                  break;
-                  case 3:
-                  printf("Signal: SENSITIVE                    \n");
-                  break;
-                  default:
-                  printf("Signal: INVALID                    \n");
-                  break;
+                  rover_elapsed_time_hs = rover_time_stop_hs - rover_time_start_hs;
+                  rover_time_start_hs = rover_time_stop_hs;
                 }
 
-                switch(info.fix)
-                {
-                  case 1:
-                  printf("Operating mode: FIX NOT AVAILABLE                    \n");
-                  break;
-                  case 2:
-                  printf("Operating mode: 2D                    \n");
-                  break;
-                  case 3:
-                  printf("Operating mode: 3D                    \n");
-                  break;
-                  default:
-                  printf("Operating mode: UNKNOWN                    \n");
-                  break;
-                }
-              }
-              else
-              {
-                printf("Signal:\n");
-                printf("Operating mode:\n");
-              }
+                // if I have odometry avaible then I can run kalman_estimate
+                /*if((segway_status.list.operational_state == SEGWAY_TRACTOR) || (segway_status.list.operational_state == SEGWAY_STANDBY))
+                 {
+                 // Estimate parameter from kalman filter
+                 //kalman_estimate(convert_to_float(segway_status.list.linear_vel_mps),
+                 //                                 info.magnetic_sensor_heading_true,
+                 //                                 rover_elapsed_time_hs * 10000);
 
-              printf("Position Diluition of Precision: %f                    \n", info.PDOP);
-              printf("Horizontal Diluition of Precision: %f                    \n", info.HDOP);
-              printf("Vertical Diluition of Precisione: %f                    \n", info.VDOP);
-              printf("Latitude: %f                    \n", info.lat);
-              printf("Longitude: %f                    \n", info.lon);
-              printf("Elevation: %f m                    \n", info.elv);
-              printf("Speed: %f km/h                    \n", info.speed);
-              printf("Direction: %f degrees                    \n", info.direction);
+                 if((info.sig == NMEA_SIG_BAD) || (info.fix == NMEA_FIX_BAD))
+                 {
+                 gps_fix_timer_hs = 0;
 
-              printf("Magnetic variation degrees: %f                    \n", info.declination);
-              printf("Magnetic sensor heading: %f                    \n", info.magnetic_sensor_heading);
-              printf("Magnetic sensor heading true: %f               \n", info.magnetic_sensor_heading_true);
-              printf("Magnetic sensor deviation: %f                    \n", info.magnetic_sensor_deviation);
-              printf("Magnetic sensor variation: %f                    \n", info.magnetic_sensor_variation);
-              printf("Rate turn: %f                    \n", convert_to_float(segway_status.list.inertial_z_rate_rps));
-              printf("Pitch oscillation: %f                    \n", info.pitch_osc);
-              printf("Roll oscillation: %f                    \n", info.roll_osc);
+                 // If gps_generate is already init then generate gps information from odometry
+                 if(gps_simulate_flag)
+                 {
+                 gps_generate(convert_to_float(segway_status.list.linear_vel_mps) * 3.6,
+                 info.magnetic_sensor_heading_true,
+                 rover_elapsed_time_hs * 10000, gps_device_buffer, &info);
+                 }
+                 else
+                 {
+                 gps_generate_init(NMEA_SIG_BAD, NMEA_FIX_BAD, rtb_old_lat, rtb_old_lon,
+                 convert_to_float(segway_status.list.linear_vel_mps) * 3.6,
+                 rtb_old_elv, info.magnetic_sensor_heading_true, 0, 0, &info);
 
-              printf("\nSatellite: \tin view: %i          \n\t\tin use: %i                    \n", info.satinfo.inview, info.satinfo.inuse);
-#endif
+                 gps_simulate_flag = 1;
+                 }
 
-              // Update the rtb map if I'm in recording mode
-              if(rtb_active_flag == 0)
-              {
-                if((RTBstatus.mode == RTB_recording)
-                    && ((info.sig != NMEA_SIG_BAD) || (info.fix != NMEA_FIX_BAD)) && (info.PDOP < 4)
+                 if(show_gps_state_flag)
+                 {
+                 printf("\033[K");
+                 printf("[Sig: Bad] [Fix: Bad] [lon %f lat%f]\r", GpsCoord2Double(info.lon), GpsCoord2Double(info.lat));
+                 }
+                 }
+                 }*/
+
+                // if I have a good signal form gps then update the kalman filter
+                if(((info.sig != NMEA_SIG_BAD) || (info.fix != NMEA_FIX_BAD)) && (info.PDOP < 4)
                     && (info.HDOP < 4))
                 {
-                  if(show_rtb_state_flag)
+                  if(gps_fix_timer_hs < GPS_FIX_TIMEOUT_SEC * 100)
+                    gps_fix_timer_hs += rover_elapsed_time_hs;
+                  else
                   {
-                    printf("\033[K");
-                    printf("[Recording] [lon %f lat%f]\r", GpsCoord2Double(info.lon),
-                        GpsCoord2Double(info.lat));
+                    // if it's the first time that I have gps fix, then traslate the previuse points
+                    // calculate by odometry
+                    if(gps_fix_flag == 0)
+                    {
+                      gps_fix_flag = 1;
+                      gps_simulate_flag = 1;
+
+                      gps_generate_init(NMEA_SIG_BAD, NMEA_FIX_BAD, info.lat, info.lon,
+                          convert_to_float(segway_status.list.linear_vel_mps) * 3.6, rtb_old_elv,
+                          info.magnetic_sensor_heading_true, 0, 0, &info);
+
+                      // Check if I have to initialize the odometer data with real gps position. This condition
+                      // is verified when it's time to compute odometer data for the first time. I don't traslate
+                      // coord when I use odometer instead gps due to the signal loss
+                      printf("Gps Traslate point\n");
+                      RTB_traslate_point(GpsCoord2Double(info.lat), GpsCoord2Double(info.lon),
+                          rtb_point_temp);
+
+                      if(rtb_point_temp != NULL)
+                      {
+                        RTB_point *local_point = rtb_point_temp;
+
+                        while(local_point->next != NULL)
+                        {
+                          gps_info.command = 1;
+
+                          gps_info.latitude = convert_to_ieee754(local_point->y);
+                          gps_info.longitude = convert_to_ieee754(local_point->x);
+
+                          if(local_point->previous != NULL)
+                            gps_info.distance_from_previous = local_point->distance_from_start
+                                - local_point->previous->distance_from_start;
+                          else
+                            gps_info.distance_from_previous = 0;
+
+                          local_point = local_point->next;
+
+                          bytes_sent = sendto(gps_socket, &gps_info, sizeof(gps_info), 0,
+                              (struct sockaddr *) &gps_socket_addr_dest,
+                              sizeof(gps_socket_addr_dest));
+                        }
+
+                        free(rtb_point_temp);
+                      }
+                    }
+
+                    if(show_gps_state_flag)
+                    {
+                      printf("\033[K");
+                      switch(info.sig)
+                      {
+                        case 0:
+                          printf("[Sig: Invalid] ");
+                          break;
+                        case 1:
+                          printf("[Sig: Fix] ");
+                          break;
+                        case 2:
+                          printf("[Sig: Differential] ");
+                          break;
+                        case 3:
+                          printf("[Sig: Sensitive] ");
+                          break;
+                        default:
+                          printf("[Sig: Invalid] ");
+                          break;
+                      }
+
+                      switch(info.fix)
+                      {
+                        case 1:
+                          printf("[Fix: not available] ");
+                          break;
+                        case 2:
+                          printf("[Fix: 2d] ");
+                          break;
+                        case 3:
+                          printf("[Fix: 3d] ");
+                          break;
+                        default:
+                          printf("[Fix: unknonw] ");
+                          break;
+                      }
+
+                      printf("[lon %f lat%f]\r", GpsCoord2Double(info.lon),
+                          GpsCoord2Double(info.lat));
+                    }
+
+                    // Update kalman filter
+                    // First I have to transform gps data in decimal format
+                    /*info.lon = GpsCoord2Double(info.lon);
+                     info.lat = GpsCoord2Double(info.lat);
+
+                     kalman_update(&info.lon, &info.lat);
+
+                     // Return to gps format
+                     info.lon = Double2GpsCoord(info.lon);
+                     info.lat = Double2GpsCoord(info.lat);*/
+                  }
+                }
+
+#ifdef GPS_DEBUG
+                if(it > 0)
+                {
+                  printf("\033[22A");
+                }
+                else
+                it++;
+
+                printf("Time: %i/%i/%i %i:%i:%i.%i                    \n", info.utc.day, info.utc.mon + 1, info.utc.year + 1900, info.utc.hour, info.utc.min, info.utc.sec, info.utc.hsec);
+                if((info.smask & GPGGA) || (info.smask & GPRMC))
+                {
+                  //info.smask &= !GPGGA;
+                  switch(info.sig)
+                  {
+                    case 0:
+                    printf("Signal: INVALID                    \n");
+                    break;
+                    case 1:
+                    printf("Signal: FIX                    \n");
+                    break;
+                    case 2:
+                    printf("Signal: DIFFERENTIAL                    \n");
+                    break;
+                    case 3:
+                    printf("Signal: SENSITIVE                    \n");
+                    break;
+                    default:
+                    printf("Signal: INVALID                    \n");
+                    break;
                   }
 
-                  RTB_update(GpsCoord2Double(info.lon), GpsCoord2Double(info.lat),
-                      (convert_to_float(segway_status.list.linear_vel_mps) * 3.6),
-                      convert_to_float(segway_status.list.inertial_z_rate_rps), 0, NULL, 0,
-                      &rtb_point_catch);
+                  switch(info.fix)
+                  {
+                    case 1:
+                    printf("Operating mode: FIX NOT AVAILABLE                    \n");
+                    break;
+                    case 2:
+                    printf("Operating mode: 2D                    \n");
+                    break;
+                    case 3:
+                    printf("Operating mode: 3D                    \n");
+                    break;
+                    default:
+                    printf("Operating mode: UNKNOWN                    \n");
+                    break;
+                  }
                 }
                 else
-                  RTB_set_mode(RTB_recording);
-              }
-
-              // Send Gps info to ccu
-              if((info.sig != NMEA_SIG_BAD) || (info.fix != NMEA_FIX_BAD))
-              {
-                if(rtb_point_catch == 1)
                 {
-                  if(RTBstatus.mode == RTB_recording)
-                    gps_info.command = 1;
-                  else
-                    gps_info.command = 2;
+                  printf("Signal:\n");
+                  printf("Operating mode:\n");
                 }
-                else
-                  gps_info.command = 0;
 
-                rtb_point_catch = 0;
+                printf("Position Diluition of Precision: %f                    \n", info.PDOP);
+                printf("Horizontal Diluition of Precision: %f                    \n", info.HDOP);
+                printf("Vertical Diluition of Precisione: %f                    \n", info.VDOP);
+                printf("Latitude: %f                    \n", info.lat);
+                printf("Longitude: %f                    \n", info.lon);
+                printf("Elevation: %f m                    \n", info.elv);
+                printf("Speed: %f km/h                    \n", info.speed);
+                printf("Direction: %f degrees                    \n", info.direction);
 
-                // Send gps info to ccu
-                gps_info.latitude = convert_to_ieee754(GpsCoord2Double(info.lat));
-                gps_info.longitude = convert_to_ieee754(GpsCoord2Double(info.lon));
-                gps_info.direction = convert_to_ieee754(info.magnetic_sensor_heading_true);
-                gps_info.distance_from_previous = convert_to_ieee754(RTBstatus.distance);
+                printf("Magnetic variation degrees: %f                    \n", info.declination);
+                printf("Magnetic sensor heading: %f                    \n", info.magnetic_sensor_heading);
+                printf("Magnetic sensor heading true: %f               \n", info.magnetic_sensor_heading_true);
+                printf("Magnetic sensor deviation: %f                    \n", info.magnetic_sensor_deviation);
+                printf("Magnetic sensor variation: %f                    \n", info.magnetic_sensor_variation);
+                printf("Rate turn: %f                    \n", convert_to_float(segway_status.list.inertial_z_rate_rps));
+                printf("Pitch oscillation: %f                    \n", info.pitch_osc);
+                printf("Roll oscillation: %f                    \n", info.roll_osc);
 
-                bytes_sent = sendto(gps_socket, &gps_info, sizeof(gps_info), 0,
-                    (struct sockaddr *) &gps_socket_addr_dest, sizeof(gps_socket_addr_dest));
+                printf("\nSatellite: \tin view: %i          \n\t\tin use: %i                    \n", info.satinfo.inview, info.satinfo.inuse);
+#endif
 
-                if(bytes_sent < 0)
-                  perror("sendto gps");
+                // Update the rtb map if I'm in recording mode
+                if(rtb_active_flag == 0)
+                {
+                  if((RTBstatus.mode == RTB_recording)
+                      && ((info.sig != NMEA_SIG_BAD) || (info.fix != NMEA_FIX_BAD))
+                      && (info.PDOP < 4) && (info.HDOP < 4))
+                  {
+                    if(show_rtb_state_flag)
+                    {
+                      printf("\033[K");
+                      printf("[Recording] [lon %f lat%f]\r", GpsCoord2Double(info.lon),
+                          GpsCoord2Double(info.lat));
+                    }
+
+                    RTB_update(GpsCoord2Double(info.lon), GpsCoord2Double(info.lat),
+                        (convert_to_float(segway_status.list.linear_vel_mps) * 3.6),
+                        convert_to_float(segway_status.list.inertial_z_rate_rps), 0, NULL, 0,
+                        &rtb_point_catch);
+                  }
+                  else
+                    RTB_set_mode(RTB_recording);
+                }
+
+                // Send Gps info to ccu
+                if((info.sig != NMEA_SIG_BAD) || (info.fix != NMEA_FIX_BAD))
+                {
+                  if(rtb_point_catch == 1)
+                  {
+                    if(RTBstatus.mode == RTB_recording)
+                      gps_info.command = 1;
+                    else
+                      gps_info.command = 2;
+                  }
+                  else
+                    gps_info.command = 0;
+
+                  rtb_point_catch = 0;
+
+                  // Send gps info to ccu
+                  gps_info.latitude = convert_to_ieee754(GpsCoord2Double(info.lat));
+                  gps_info.longitude = convert_to_ieee754(GpsCoord2Double(info.lon));
+                  gps_info.direction = convert_to_ieee754(info.magnetic_sensor_heading_true);
+                  gps_info.distance_from_previous = convert_to_ieee754(RTBstatus.distance);
+
+                  bytes_sent = sendto(gps_socket, &gps_info, sizeof(gps_info), 0,
+                      (struct sockaddr *) &gps_socket_addr_dest, sizeof(gps_socket_addr_dest));
+
+                  if(bytes_sent < 0)
+                    perror("sendto gps");
+                }
+
+                rtb_old_direction = info.magnetic_sensor_heading_true;
+                rtb_old_lat = info.lat;
+                rtb_old_lon = info.lon;
+                rtb_old_elv = info.elv;
               }
-
-              rtb_old_direction = info.magnetic_sensor_heading_true;
-              rtb_old_lat = info.lat;
-              rtb_old_lon = info.lon;
-              rtb_old_elv = info.elv;
+              //info.smask &= !(GPRMC | GPGGA | GPVTG | HCHDT | GPGSV);
             }
-            //info.smask &= !(GPRMC | GPGGA | GPVTG | HCHDT | GPGSV);
           }
         }
       }
@@ -1996,11 +2028,6 @@ int main(int argc, char **argv)
       {
         bytes_read = arm_rs485_read(arm_rs485_device);
 
-        //clock_gettime(CLOCK_REALTIME, &arm485_timer_stop);
-        //long arm485_time_ns;
-        //arm485_time_ns = (arm485_timer_stop.tv_sec * 1000000000 + arm485_timer_stop.tv_nsec) - (arm485_timer_start.tv_sec * 1000000000 + arm485_timer_start.tv_nsec);
-        //printf("Time elapsed [%i]: %ld\n", arm_query_link, arm485_time_ns);
-
         if(bytes_read == -2)
           printf("rs485 overrun\n");
         else if(bytes_read == -1)
@@ -2027,21 +2054,21 @@ int main(int argc, char **argv)
             arm_link[arm_query_link - 1].md_running = (arm_buffer[2] >> 7) & 0x1;
 
             /*printf("============================\n");
-            printf("Motor %i\n", arm_query_link);
-            printf("slots: %d\n", arm_link[arm_query_link - 1].slots);
-            printf("pending_g: %d\n", arm_buffer[2] & 0x1);
-            printf("ip_ready: %d\n", (arm_buffer[2] >> 1) & 0x1);
+             printf("Motor %i\n", arm_query_link);
+             printf("slots: %d\n", arm_link[arm_query_link - 1].slots);
+             printf("pending_g: %d\n", arm_buffer[2] & 0x1);
+             printf("ip_ready: %d\n", (arm_buffer[2] >> 1) & 0x1);
 
-            if(arm_link[arm_query_link - 1].invalid_time_delta)
-              printf("Warning: invalid time delta\n");
+             if(arm_link[arm_query_link - 1].invalid_time_delta)
+             printf("Warning: invalid time delta\n");
 
-            if(arm_link[arm_query_link - 1].invalid_position_delta)
-              printf("Warning: invalid position delta\n");
+             if(arm_link[arm_query_link - 1].invalid_position_delta)
+             printf("Warning: invalid position delta\n");
 
-            printf("md_ready: %d\n", (arm_buffer[2] >> 4) & 0x1);
-            printf("data_buffer_overflow: %d\n", (arm_buffer[2] >> 5) & 0x1);
-            printf("data_buffer_underflow: %d\n", (arm_buffer[2] >> 6) & 0x1);
-            printf("md_running: %d\n", (arm_buffer[2] >> 7) & 0x1);*/
+             printf("md_ready: %d\n", (arm_buffer[2] >> 4) & 0x1);
+             printf("data_buffer_overflow: %d\n", (arm_buffer[2] >> 5) & 0x1);
+             printf("data_buffer_underflow: %d\n", (arm_buffer[2] >> 6) & 0x1);
+             printf("md_running: %d\n", (arm_buffer[2] >> 7) & 0x1);*/
 
             // mi segno a quanti motori ho richiesto lo stato
             arm_table_query |= (0x01 << (arm_query_link - 1));
@@ -2063,20 +2090,13 @@ int main(int argc, char **argv)
                   && (arm_link[arm_query_link - 1].slots > 1))
               {
                 generate_path(-1, NULL);
-                /*}
-                 else */if(arm_table_running == 0)
+
+                if(arm_table_running == 0)
                 {
                   // End of file reached
                   arm_stop(0);
                   automove_timer_flag = 0;
                   stop_timer_flag = 1;
-                  /*arm_set_command_without_value(0, "OFF");
-                   arm_start_xyz();
-
-                   scu_state = scu_next_state;
-
-                   if(show_arm_state_flag)
-                   printf("scu state\t[scu_next_state = %i] in arm_rs485_device select(rd)\n", scu_next_state);*/
 
                   if(scu_rqst_rtb_flag == 0)
                     scu_state_rqst_flag = 1;
@@ -2287,10 +2307,24 @@ int main(int argc, char **argv)
       {
         fscanf(arm_battery_file, "%i", (int *) &battery_level);
 
+        battery_level_accum += battery_level;
+        battery_count++;
+
+        if(battery_count == ARM_BATTERY_FILTER_COUNT)
+        {
+          battery_count = 0;
+          battery_level_med = (int) (battery_level_accum / ARM_BATTERY_FILTER_COUNT);
+          battery_level_accum = 0;
+        }
+
         if(ccu_socket > 0)
         {
           //printf("battery voltage read %i mV\n", (int) (battery_level * /*1.8 * 24.74*/ 40800 / 4096));
-          sprintf(arm_battery_buffer, "b%i", (int) (battery_level * 40800 / 4096));
+          // Il coefficiente di conversione tra le tensione della batteria e quelle lette dall'adc dopo il partitore è di
+          // 22.92143832. Per calcolare la tensione della batteria, basta moltiplicare il valore ottenuto dall'adc per lo
+          // step minimo di tensione (1.8 V / 4096) e moltiplicarlo per il coefficiente di conversione. Quindi, il
+          // coefficiente moltiplicativo finale sarà di (1800 * 22.92143832 / 4096) = 10.0
+          sprintf(arm_battery_buffer, "b%i", (int) (battery_level_med * 10.072));  //old: 40800
 
           bytes_sent = sendto(ccu_socket, arm_battery_buffer, strlen(arm_battery_buffer), 0,
               (struct sockaddr *) &ccu_socket_addr_dest, sizeof(ccu_socket_addr_dest));
@@ -2358,42 +2392,45 @@ int main(int argc, char **argv)
     {
       if(FD_ISSET(lms511_socket, &rd))
       {
-        lms511_parse(lms511_socket);
-
-        if(lms511_info.data.spot_number > 0)
+        char message_type;
+        lms511_parse(lms511_socket, &message_type);
+        if(message_type > 0)
         {
-          lms511_dist_flag = 0;
-
-          if(show_laser_data_flag)
-            lms511_min_dist = 8000;
-
-          for(lms511_count = 0; lms511_count < lms511_info.spot_number; lms511_count++)
+          if(lms511_info.data.spot_number > 0)
           {
-            if(lms511_info.data.spot[lms511_count] == 0)
-              lms511_info.data.spot[lms511_count] = 8000;
+            lms511_dist_flag = 0;
 
             if(show_laser_data_flag)
-              lms511_min_dist = min(lms511_min_dist, lms511_info.data.spot[lms511_count]);
+              lms511_min_dist = 8000;
 
-            if(lms511_info.data.spot[lms511_count] < 2000)
+            for(lms511_count = 0; lms511_count < lms511_info.spot_number; lms511_count++)
             {
-              if(lms511_count == (lms511_dist_index + 1))
+              if(lms511_info.data.spot[lms511_count] == 0)
+                lms511_info.data.spot[lms511_count] = 8000;
+
+              if(show_laser_data_flag)
+                lms511_min_dist = min(lms511_min_dist, lms511_info.data.spot[lms511_count]);
+
+              if(lms511_info.data.spot[lms511_count] < 2000)
               {
-                lms511_dist_flag += 1;
-                if((lms511_dist_flag > 4) && (show_laser_data_flag == 0))
-                  break;
+                if(lms511_count == (lms511_dist_index + 1))
+                {
+                  lms511_dist_flag += 1;
+                  if((lms511_dist_flag > 4) && (show_laser_data_flag == 0))
+                    break;
+                }
+                else
+                  lms511_dist_flag = 1;
+
+                lms511_dist_index = lms511_count;
               }
-              else
-                lms511_dist_flag = 1;
-
-              lms511_dist_index = lms511_count;
             }
-          }
 
-          if(show_laser_data_flag)
-          {
-            printf("\033[K");
-            printf("Laser minimum distance: %i\r", lms511_min_dist);
+            if(show_laser_data_flag)
+            {
+              printf("\033[K");
+              printf("Laser minimum distance: %i\r", lms511_min_dist);
+            }
           }
         }
       }
@@ -2505,17 +2542,13 @@ int main(int argc, char **argv)
         {
           request_timer_flag = 0;
 
-          //if(arm_link[arm_query_link - 1].timeout_counter < LINK_TIMEOUT_LIMIT)
-          //{
           struct arm_rs485_frame arm_rs485_buffer;
           arm_rs485_get_last_message_write(&arm_rs485_buffer);
           printf("Timeout[%d] on %x%s\n. \tElapsed %ld ns\n\t# of timeout: %d\n", arm_query_link,
               arm_rs485_buffer.arm_command_param.command[0],
               &arm_rs485_buffer.arm_command_param.command[1], request_elapsed_time_ns,
               arm_link[arm_query_link - 1].timeout_counter + 1);
-          //}
 
-          //clock_gettime(CLOCK_REALTIME, &request_timer_stop);
           request_elapsed_time_ns = 0;
 
           arm_request_position = 0;
@@ -2543,9 +2576,6 @@ int main(int argc, char **argv)
               if(scu_rqst_rtb_flag == 0)
                 scu_state_rqst_flag = 1;
             }
-            //else
-            //{
-            //arm_link[arm_query_link - 1].actual_position = 0;
 
             if(arm_link[arm_query_link - 1].position_initialized == 0)
               arm_link[arm_query_link - 1].position_initialized = 1;
@@ -2554,7 +2584,6 @@ int main(int argc, char **argv)
                 << (arm_query_link - 1));
 
             arm_link[arm_query_link - 1].trajectory_status = 0;
-            //}
           }
 
           arm_query_link = -1;
@@ -2701,7 +2730,11 @@ int main(int argc, char **argv)
                 {
                   if(lms511_open(&lms511_socket, &lms511_address, LMS511_ADDRESS, LMS511_PORT)
                       == -1)
+                  {
                     perror("Init lms511 client");
+                    close(lms511_socket);
+                    lms511_socket = -1;
+                  }
                   else
                   {
                     printf("Laser Scanner\t[connected]\n");
@@ -2834,300 +2867,6 @@ int main(int argc, char **argv)
                 RTB_set_mode(RTB_tracking);
               break;
           }
-          /*          if((scu_state != ACU_RETURN_TO_BASE) && (scu_next_state != ACU_RETURN_TO_BASE))
-           {
-           arm_position_initialized = 0;
-           for(link_count = 0; link_count < MOTOR_NUMBER; link_count++)
-           arm_position_initialized |= (arm_link[link_count].position_initialized << link_count);
-
-           // init arm for homing
-           if(arm_position_initialized == ((1 << SMART_MOTOR_NUMBER) - 1))
-           {
-           switch(scu_state)
-           {
-           case ACU_HOME:
-           return_to_base_ctrl_timeout_counter = 0;
-           robotic_arm_selected = 0;
-           scu_state = ACU_RETURN_TO_BASE;
-           break;
-
-           case ACU_ARM_AUTO_MOVE:
-           return_to_base_ctrl_timeout_counter = (long)RETURN_TO_BASE_TIMEOUT_SEC * 1000000 + 10;
-           break;
-
-           case ACU_END_EFFECTOR_1:
-           return_to_base_ctrl_timeout_counter = (long)RETURN_TO_BASE_TIMEOUT_SEC * 1000000 + 10;
-
-           arm_init(0, 500, 10, 1500, 200, 1500, 100, 300, 1023);
-           arm_init(1, 500, 10, 1500, 200, 1500, 100, 700, 1023);
-           arm_init(5, 1000, 10, 32767, 2000, 1500, 100, 1400, 1023);
-           arm_init(6, 1000, 10, 32767, 2000, 1500, 100, 700, 1023);
-
-           status_return = arm_automatic_motion_xyz_start(ARM_PUT_BOX1_FILE);
-
-           if(status_return > 0)
-           {
-           robotic_arm_selected = 1;
-           scu_state = ACU_ARM_AUTO_MOVE;
-           //                printf("ACU_ARM_AUTO_MOVE\n");
-           printf("Arm is going to put a tool. . .\n");
-           }
-           else if(status_return == -1)
-           {
-           perror("arm_automatic_motion_xyz_start");
-           robotic_arm_selected = 0;
-           scu_state = ACU_RETURN_TO_BASE;
-           }
-           else
-           {
-           printf("arm_motion_start error\n");
-           robotic_arm_selected = 0;
-           scu_state = ACU_RETURN_TO_BASE;
-           }
-
-           scu_next_state = ACU_RETURN_TO_BASE;
-           break;
-
-           case ACU_END_EFFECTOR_2:
-           return_to_base_ctrl_timeout_counter = (long)RETURN_TO_BASE_TIMEOUT_SEC * 1000000 + 10;
-
-           arm_init(0, 500, 10, 1500, 200, 1500, 100, 300, 1023);
-           arm_init(1, 500, 10, 1500, 200, 1500, 100, 700, 1023);
-           arm_init(5, 1000, 10, 32767, 2000, 1500, 100, 1400, 1023);
-           arm_init(6, 1000, 10, 32767, 2000, 1500, 100, 700, 1023);
-
-           status_return = arm_automatic_motion_xyz_start(ARM_PUT_BOX2_FILE);
-
-           if(status_return > 0)
-           {
-           robotic_arm_selected = 1;
-           scu_state = ACU_ARM_AUTO_MOVE;
-           //                printf("ACU_ARM_AUTO_MOVE\n");
-           printf("Arm is going to put a tool. . .\n");
-           }
-           else if(status_return == -1)
-           {
-           perror("arm_automatic_motion_xyz_start");
-           robotic_arm_selected = 0;
-           scu_state = ACU_RETURN_TO_BASE;
-           }
-           else
-           {
-           printf("arm_motion_start error\n");
-           robotic_arm_selected = 0;
-           scu_state = ACU_RETURN_TO_BASE;
-           }
-
-           scu_next_state = ACU_RETURN_TO_BASE;
-           break;
-
-           case ACU_END_EFFECTOR_3:
-           return_to_base_ctrl_timeout_counter = (long)RETURN_TO_BASE_TIMEOUT_SEC * 1000000 + 10;
-
-           arm_init(0, 500, 10, 1500, 200, 1500, 100, 300, 1023);
-           arm_init(1, 500, 10, 1500, 200, 1500, 100, 700, 1023);
-           arm_init(5, 1000, 10, 32767, 2000, 1500, 100, 1400, 1023);
-           arm_init(6, 1000, 10, 32767, 2000, 1500, 100, 700, 1023);
-
-           status_return = arm_automatic_motion_xyz_start(ARM_PUT_BOX3_FILE);
-
-           if(status_return > 0)
-           {
-           robotic_arm_selected = 1;
-           scu_state = ACU_ARM_AUTO_MOVE;
-           //                printf("ACU_ARM_AUTO_MOVE\n");
-           printf("Arm is going to put a tool. . .\n");
-           }
-           else if(status_return == -1)
-           {
-           perror("arm_automatic_motion_xyz_start");
-           robotic_arm_selected = 0;
-           scu_state = ACU_RETURN_TO_BASE;
-           }
-           else
-           {
-           printf("arm_motion_start error\n");
-           robotic_arm_selected = 0;
-           scu_state = ACU_RETURN_TO_BASE;
-           }
-
-           scu_next_state = ACU_RETURN_TO_BASE;
-           break;
-
-           case ACU_END_EFFECTOR_4:
-           return_to_base_ctrl_timeout_counter = (long)RETURN_TO_BASE_TIMEOUT_SEC * 1000000 + 10;
-
-           arm_init(0, 500, 10, 1500, 200, 1500, 100, 300, 1023);
-           arm_init(1, 500, 10, 1500, 200, 1500, 100, 700, 1023);
-           arm_init(5, 1000, 10, 32767, 2000, 1500, 100, 1400, 1023);
-           arm_init(6, 1000, 10, 32767, 2000, 1500, 100, 700, 1023);
-
-           status_return = arm_automatic_motion_xyz_start(ARM_PUT_BOX4_FILE);
-
-           if(status_return > 0)
-           {
-           robotic_arm_selected = 1;
-           scu_state = ACU_ARM_AUTO_MOVE;
-           //                printf("ACU_ARM_AUTO_MOVE\n");
-           printf("Arm is going to put a tool. . .\n");
-           }
-           else if(status_return == -1)
-           {
-           perror("arm_automatic_motion_xyz_start");
-           robotic_arm_selected = 0;
-           scu_state = ACU_RETURN_TO_BASE;
-           }
-           else
-           {
-           printf("arm_motion_start error\n");
-           robotic_arm_selected = 0;
-           scu_state = ACU_RETURN_TO_BASE;
-           }
-
-           scu_next_state = ACU_RETURN_TO_BASE;
-           break;
-
-           case ACU_END_EFFECTOR_5:
-           return_to_base_ctrl_timeout_counter = (long)RETURN_TO_BASE_TIMEOUT_SEC * 1000000 + 10;
-
-           arm_init(0, 500, 10, 1500, 200, 1500, 100, 300, 1023);
-           arm_init(1, 500, 10, 1500, 200, 1500, 100, 700, 1023);
-           arm_init(5, 1000, 10, 32767, 2000, 1500, 100, 1400, 1023);
-           arm_init(6, 1000, 10, 32767, 2000, 1500, 100, 700, 1023);
-
-           status_return = arm_automatic_motion_xyz_start(ARM_PUT_BOX5_FILE);
-
-           if(status_return > 0)
-           {
-           robotic_arm_selected = 1;
-           scu_state = ACU_ARM_AUTO_MOVE;
-           //                printf("ACU_ARM_AUTO_MOVE\n");
-           printf("Arm is going to put a tool. . .\n");
-           }
-           else if(status_return == -1)
-           {
-           perror("arm_automatic_motion_xyz_start");
-           robotic_arm_selected = 0;
-           scu_state = ACU_RETURN_TO_BASE;
-           }
-           else
-           {
-           printf("arm_motion_start error\n");
-           robotic_arm_selected = 0;
-           scu_state = ACU_RETURN_TO_BASE;
-           }
-
-           scu_next_state = ACU_RETURN_TO_BASE;
-           break;
-
-           case ACU_END_EFFECTOR_6:
-           return_to_base_ctrl_timeout_counter = (long)RETURN_TO_BASE_TIMEOUT_SEC * 1000000 + 10;
-
-           arm_init(0, 500, 10, 1500, 200, 1500, 100, 300, 1023);
-           arm_init(1, 500, 10, 1500, 200, 1500, 100, 700, 1023);
-           arm_init(5, 1000, 10, 32767, 2000, 1500, 100, 1400, 1023);
-           arm_init(6, 1000, 10, 32767, 2000, 1500, 100, 700, 1023);
-
-           status_return = arm_automatic_motion_xyz_start(ARM_PUT_BOX6_FILE);
-
-           if(status_return > 0)
-           {
-           robotic_arm_selected = 1;
-           scu_state = ACU_ARM_AUTO_MOVE;
-           //                printf("ACU_ARM_AUTO_MOVE\n");
-           printf("Arm is going to put a tool. . .\n");
-           }
-           else if(status_return == -1)
-           {
-           perror("arm_automatic_motion_xyz_start");
-           robotic_arm_selected = 0;
-           scu_state = ACU_RETURN_TO_BASE;
-           }
-           else
-           {
-           printf("arm_motion_start error\n");
-           robotic_arm_selected = 0;
-           scu_state = ACU_RETURN_TO_BASE;
-           }
-
-           scu_next_state = ACU_RETURN_TO_BASE;
-           break;
-
-           case ACU_END_EFFECTOR_7:
-           return_to_base_ctrl_timeout_counter = (long)RETURN_TO_BASE_TIMEOUT_SEC * 1000000 + 10;
-
-           arm_init(0, 500, 10, 1500, 200, 1500, 100, 300, 1023);
-           arm_init(1, 500, 10, 1500, 200, 1500, 100, 700, 1023);
-           arm_init(5, 1000, 10, 32767, 2000, 1500, 100, 1400, 1023);
-           arm_init(6, 1000, 10, 32767, 2000, 1500, 100, 700, 1023);
-
-           status_return = arm_automatic_motion_xyz_start(ARM_PUT_BOX7_FILE);
-
-           if(status_return > 0)
-           {
-           robotic_arm_selected = 1;
-           scu_state = ACU_ARM_AUTO_MOVE;
-           //                printf("ACU_ARM_AUTO_MOVE\n");
-           printf("Arm is going to put a tool. . .\n");
-           }
-           else if(status_return == -1)
-           {
-           perror("arm_automatic_motion_xyz_start");
-           robotic_arm_selected = 0;
-           scu_state = ACU_RETURN_TO_BASE;
-           }
-           else
-           {
-           printf("arm_motion_start error\n");
-           robotic_arm_selected = 0;
-           scu_state = ACU_RETURN_TO_BASE;
-           }
-
-           scu_next_state = ACU_RETURN_TO_BASE;
-           break;
-
-           default:
-           return_to_base_ctrl_timeout_counter = 0;
-
-           // check if it is in home position
-           arm_init(0, 500, 10, 1500, 200, 1500, 100, 300, 1023);
-           arm_init(1, 500, 10, 1500, 200, 1500, 100, 700, 1023);
-           arm_init(5, 1000, 10, 32767, 2000, 1500, 100, 1400, 1023);
-           arm_init(6, 1000, 10, 32767, 2000, 1500, 100, 700, 1023);
-
-           status_return = arm_automatic_motion_xyz_start(ARM_HOME_FILE);
-
-           printf("Return to base. . .\n");
-
-           if(status_return > 0)
-           {
-           scu_next_state = ACU_RETURN_TO_BASE;
-           scu_state = ACU_ARM_HOMING;
-           //                printf("ACU_ARM_HOMING\n");
-           robotic_arm_selected = 1;
-           printf("Start homing. . .\n");
-           #ifdef GPS_DEBUG
-           gps_generate_init(2, 2, info.lat, info.lon, 0, info.elv, info.direction, 3, 3, &info);
-           #endif
-           }
-           else if(status_return == -1)
-           {
-           perror("arm_automatic_motion_xyz_start");
-           robotic_arm_selected = 0;
-           scu_state = ACU_ARM_AUTO_MOVE;
-           }
-           else
-           {
-           printf("arm_motion_start error\n");
-           robotic_arm_selected = 0;
-           scu_state = ACU_ARM_AUTO_MOVE;
-           }
-
-
-           break;
-           }
-           }
-           }*/
         }
       }
 
@@ -3248,13 +2987,6 @@ void arm_status_update(unsigned char *arm_state, unsigned char *arm_next_state,
           break;
 
         case ARM_RQST_PARK:
-          /*arm_ee_xyz(&x, &y, &z);
-           // tuning motor 1
-           arm_set_max_velocity(1, 700);
-
-           automatic_motion_flag = arm_automatic_motion_xyz_start(ARM_PARK_FILE);
-           if(automatic_motion_flag > 0)
-           {*/
           init_interpolation_mode(ARM_PARK_FILE);
           *arm_prev_state = *arm_state;
           *arm_state = SCU_ARM_AUTO_MOVE;
@@ -3269,28 +3001,9 @@ void arm_status_update(unsigned char *arm_state, unsigned char *arm_next_state,
             scu_state_rqst_flag = 1;
 
           printf("Arm is going to parking position. . .\n");
-          /*}
-           else if(automatic_motion_flag == -1)
-           {
-           perror("arm_automatic_motion_xyz_start");
-           arm_set_command_without_value(0, "G");
-           }
-           else
-           {
-           printf("arm_motion_start: it's not a valid file\n");
-           arm_set_command_without_value(0, "G");
-           }*/
           break;
 
         case ARM_RQST_PARK_CLASSA:
-          /*arm_ee_xyz(&x, &y, &z);
-
-           // tuning motor 1
-           arm_set_max_velocity(1, 700);
-
-           automatic_motion_flag = arm_automatic_motion_xyz_start(ARM_PARK_CLASSA_FILE);
-           if(automatic_motion_flag > 0)
-           {*/
           init_interpolation_mode(ARM_PARK_CLASSA_FILE);
           *arm_prev_state = *arm_state;
           *arm_state = SCU_ARM_AUTO_MOVE;
@@ -3306,29 +3019,10 @@ void arm_status_update(unsigned char *arm_state, unsigned char *arm_next_state,
             scu_state_rqst_flag = 1;
 
           printf("Arm is going to parking classA position. . .\n");
-          /*}
-           else if(automatic_motion_flag == -1)
-           {
-           perror("arm_automatic_motion_xyz_start");
-           arm_set_command_without_value(0, "G");
-           }
-           else
-           {
-           printf("arm_motion_start: it's not a valid file\n");
-           arm_set_command_without_value(0, "G");
-           }*/
+
           break;
 
         case ARM_RQST_STEADY:
-          /*arm_ee_xyz(&x, &y, &z);
-
-           // tuning motor 1
-           arm_set_max_velocity(1, 700);
-
-           automatic_motion_flag = arm_automatic_motion_xyz_start(ARM_READY_FILE);
-
-           if(automatic_motion_flag > 0)
-           {*/
           init_interpolation_mode(ARM_READY_FILE);
           *arm_prev_state = *arm_state;
           *arm_state = SCU_ARM_AUTO_MOVE;
@@ -3343,29 +3037,9 @@ void arm_status_update(unsigned char *arm_state, unsigned char *arm_next_state,
             scu_state_rqst_flag = 1;
 
           printf("Arm is going to ready position. . .\n");
-          /*}
-           else if(automatic_motion_flag == -1)
-           {
-           perror("arm_automatic_motion_xyz_start");
-           arm_set_command_without_value(0, "G");
-           }
-           else
-           {
-           printf("arm_motion_start: it's not a valid file\n");
-           arm_set_command_without_value(0, "G");
-           }*/
           break;
 
         case ARM_RQST_DINAMIC:
-          /*arm_ee_xyz(&x, &y, &z);
-
-           // tuning motor 1
-           arm_set_max_velocity(1, 700);
-
-           automatic_motion_flag = arm_automatic_motion_xyz_start(ARM_DINAMIC_FILE);
-
-           if(automatic_motion_flag > 0)
-           {*/
           init_interpolation_mode(ARM_DINAMIC_FILE);
           *arm_prev_state = *arm_state;
           *arm_state = SCU_ARM_AUTO_MOVE;
@@ -3380,17 +3054,6 @@ void arm_status_update(unsigned char *arm_state, unsigned char *arm_next_state,
             scu_state_rqst_flag = 1;
 
           printf("Arm is going to dinamic position. . .\n");
-          /*}
-           else if(automatic_motion_flag == -1)
-           {
-           perror("arm_automatic_motion_xyz_start");
-           arm_set_command_without_value(0, "G");
-           }
-           else
-           {
-           printf("arm_motion_start: it's not a valid file\n");
-           arm_set_command_without_value(0, "G");
-           }*/
           break;
 
         case ARM_RQST_STEP:
@@ -3403,10 +3066,6 @@ void arm_status_update(unsigned char *arm_state, unsigned char *arm_next_state,
         case ARM_RQST_GET_TOOL_5:
         case ARM_RQST_GET_TOOL_6:
         case ARM_RQST_GET_TOOL_7:
-          /*arm_ee_xyz(&x, &y, &z);
-
-           // tuning motor 1
-           arm_set_max_velocity(1, 700);*/
           *arm_prev_state = *arm_state;
 
           if(arm_message.arm_command_param.header_uint == ARM_RQST_GET_TOOL_1)
@@ -3452,8 +3111,6 @@ void arm_status_update(unsigned char *arm_state, unsigned char *arm_next_state,
             *arm_next_state = SCU_ARM_END_EFFECTOR_7;
           }
 
-          /*if(automatic_motion_flag > 0)
-           {  */
           *arm_state = SCU_ARM_AUTO_MOVE;
 
           if(show_arm_state_flag)
@@ -3466,21 +3123,6 @@ void arm_status_update(unsigned char *arm_state, unsigned char *arm_next_state,
             scu_state_rqst_flag = 1;
 
           printf("Arm is going to get a tool. . .\n");
-          /*}
-           else if(automatic_motion_flag == -1)
-           {
-           perror("arm_automatic_motion_xyz_start");
-           arm_set_command_without_value(0, "G");
-           *arm_prev_state = *arm_state;
-           *arm_next_state = SCU_ARM_IDLE;
-           }
-           else
-           {
-           printf("arm_motion_start: it's not a valid file\n");
-           arm_set_command_without_value(0, "G");
-           *arm_prev_state = *arm_state;
-           *arm_next_state = SCU_ARM_IDLE;
-           }*/
           break;
 
         case ARM_RQST_PUMP:
@@ -3517,40 +3159,25 @@ void arm_status_update(unsigned char *arm_state, unsigned char *arm_next_state,
 
         case ARM_SET_ORIGIN:
           printf("Warning: predefined point set!\n");
-          /*arm_home_start(2);
-
-           *arm_prev_state = SCU_ARM_IDLE;
-           *arm_state = SCU_ARM_AUTO_MOVE;
-           *arm_next_state = SCU_ARM_IDLE;
-
-           homing_timer_flag = 1;
-
-           if(scu_rqst_rtb_flag == 0)
-           scu_state_rqst_flag = 1;
-
-           printf("Arm in homing. . .\n");
-
-           if(show_arm_state_flag)
-           printf("scu state\t[SCU_ARM_AUTO_MOVE] in arm_status_update after ARM_RQST_HOME\n");*/
 
           // store position
-          arm_set_command(1, "O", -435300);
-          arm_set_command(1, "p", -435300);
+          arm_set_command(1, "O", -435209); //new: -435209.4888 old: -435300
+          arm_set_command(1, "p", -435209);
           arm_set_command(1, "EPTR", 100);
           arm_set_command_without_value(1, "VST(p,1)");
 
-          arm_set_command(2, "O", 1143856);
-          arm_set_command(2, "p", 1143856);
+          arm_set_command(2, "O", 1139225); //new: 1139225.309 old: 1143856
+          arm_set_command(2, "p", 1139225);
           arm_set_command(2, "EPTR", 100);
           arm_set_command_without_value(2, "VST(p,1)");
 
-          arm_set_command(3, "O", -291687);
+          arm_set_command(3, "O", -290972); //new: -290971.8083 old: -291687
           arm_set_command(3, "p", -291687);
           arm_set_command(3, "EPTR", 100);
           arm_set_command_without_value(3, "VST(p,1)");
 
-          arm_set_command(4, "O", -508);
-          arm_set_command(4, "p", -508);
+          arm_set_command(4, "O", 0);  //new: 0 old:-508
+          arm_set_command(4, "p", 0);
           arm_set_command(4, "EPTR", 100);
           arm_set_command_without_value(4, "VST(p,1)");
 
@@ -3664,17 +3291,6 @@ void arm_status_update(unsigned char *arm_state, unsigned char *arm_next_state,
 
           if(show_arm_state_flag)
             printf("scu state\t[SCU_ARM_AUTO_MOVE] in arm_status_update after ARM_RQST_\n");
-          /*}
-           else if(automatic_motion_flag == -1)
-           {
-           perror("arm_automatic_motion_xyz_start");
-           arm_set_command_without_value(0, "G");
-           }
-           else
-           {
-           printf("arm_motion_start: it's not a valid file\n");
-           arm_set_command_without_value(0, "G");
-           }*/
 
           *arm_next_state = SCU_ARM_IDLE;
           break;
@@ -3702,13 +3318,6 @@ void arm_status_update(unsigned char *arm_state, unsigned char *arm_next_state,
           break;
 
         case ARM_RQST_PARK_CLASSA:
-          /*arm_ee_xyz(&x, &y, &z);
-           // tuning motor 1
-           arm_set_max_velocity(1, 700);*/
-
-          /*automatic_motion_flag = arm_automatic_motion_xyz_start(ARM_PARK_CLASSA_FILE);
-           if(automatic_motion_flag > 0)
-           {*/
           init_interpolation_mode(ARM_PARK_CLASSA_FILE);
           *arm_prev_state = *arm_state;
           *arm_state = SCU_ARM_AUTO_MOVE;
@@ -3723,27 +3332,9 @@ void arm_status_update(unsigned char *arm_state, unsigned char *arm_next_state,
           if(show_arm_state_flag)
             printf(
                 "scu state\t[SCU_ARM_AUTO_MOVE] in arm_status_update after ARM_RQST_PARK_CLASSA\n");
-          /*}
-           else if(automatic_motion_flag == -1)
-           {
-           perror("arm_automatic_motion_xyz_start");
-           arm_set_command_without_value(0, "G");
-           }
-           else
-           {
-           printf("arm_motion_start: it's not a valid file\n");
-           arm_set_command_without_value(0, "G");
-           }*/
           break;
 
         case ARM_RQST_STEADY:
-          /*arm_ee_xyz(&x, &y, &z);
-           // tuning motor 1
-           arm_set_max_velocity(1, 700);*/
-
-          //automatic_motion_flag = arm_automatic_motion_xyz_start(ARM_GET_OUT_FROM_REST_FILE);
-          //if(automatic_motion_flag > 0)
-          //{
           init_interpolation_mode(ARM_GET_OUT_FROM_REST_FILE);
 
           *arm_prev_state = SCU_ARM_IDLE;
@@ -3759,28 +3350,9 @@ void arm_status_update(unsigned char *arm_state, unsigned char *arm_next_state,
 
           if(show_arm_state_flag)
             printf("scu state\t[SCU_ARM_AUTO_MOVE] in arm_status_update after ARM_RQST_STEADY\n");
-          //}
-          /*else if(automatic_motion_flag == -1)
-           {
-           perror("arm_automatic_motion_xyz_start");
-           arm_set_command_without_value(0, "G");
-           }
-           else
-           {
-           printf("arm_motion_start: it's not a valid file\n");
-           arm_set_command_without_value(0, "G");
-           }*/
           break;
 
         case ARM_RQST_DINAMIC:
-          /*arm_ee_xyz(&x, &y, &z);
-           // tuning motor 1
-           arm_set_max_velocity(1, 700);
-
-           automatic_motion_flag = arm_automatic_motion_xyz_start(ARM_DINAMIC_FILE);
-
-           if(automatic_motion_flag > 0)
-           {*/
           init_interpolation_mode(ARM_DINAMIC_FILE);
           *arm_prev_state = *arm_state;
           *arm_state = SCU_ARM_AUTO_MOVE;
@@ -3794,28 +3366,9 @@ void arm_status_update(unsigned char *arm_state, unsigned char *arm_next_state,
 
           if(show_arm_state_flag)
             printf("scu state\t[SCU_ARM_AUTO_MOVE] in arm_status_update after ARM_RQST_DINAMIC\n");
-          /*}
-           else if(automatic_motion_flag == -1)
-           {
-           perror("arm_automatic_motion_xyz_start");
-           arm_set_command_without_value(0, "G");
-           }
-           else
-           {
-           printf("arm_motion_start: it's not a valid file\n");
-           arm_set_command_without_value(0, "G");
-           }*/
           break;
 
         case ARM_RQST_STEP:
-          /*arm_ee_xyz(&x, &y, &z);
-
-           // tuning motor 1
-           arm_set_max_velocity(1, 700);
-
-           automatic_motion_flag = arm_automatic_motion_xyz_start(ARM_STEP_FILE);
-           if(automatic_motion_flag > 0)
-           {*/
           init_interpolation_mode(ARM_STEP_FILE);
           *arm_prev_state = *arm_state;
           *arm_state = SCU_ARM_AUTO_MOVE;
@@ -3829,17 +3382,6 @@ void arm_status_update(unsigned char *arm_state, unsigned char *arm_next_state,
 
           if(show_arm_state_flag)
             printf("scu state\t[SCU_ARM_AUTO_MOVE] in arm_status_update after ARM_RQST_STEP\n");
-          /*}
-           else if(automatic_motion_flag == -1)
-           {
-           perror("arm_automatic_motion_xyz_start");
-           arm_set_command_without_value(0, "G");
-           }
-           else
-           {
-           printf("arm_motion_start: it's not a valid file\n");
-           arm_set_command_without_value(0, "G");
-           }*/
           break;
 
         case ARM_RQST_GET_TOOL_1:
@@ -3849,10 +3391,6 @@ void arm_status_update(unsigned char *arm_state, unsigned char *arm_next_state,
         case ARM_RQST_GET_TOOL_5:
         case ARM_RQST_GET_TOOL_6:
         case ARM_RQST_GET_TOOL_7:
-          /*arm_ee_xyz(&x, &y, &z);
-           // tuning motor 1
-           arm_set_max_velocity(1, 700);*/
-
           *arm_prev_state = *arm_state;
           if(arm_message.arm_command_param.header_uint == ARM_RQST_GET_TOOL_1)
           {
@@ -3910,19 +3448,6 @@ void arm_status_update(unsigned char *arm_state, unsigned char *arm_next_state,
           if(show_arm_state_flag)
             printf(
                 "scu state\t[SCU_ARM_AUTO_MOVE] in arm_status_update after ARM_RQST_GET_TOOL_\n");
-          /*}
-           else if(automatic_motion_flag == -1)
-           {
-           perror("arm_automatic_motion_xyz_start");
-           arm_set_command_without_value(0, "G");
-           *arm_next_state = SCU_ARM_IDLE;
-           }
-           else
-           {
-           printf("arm_motion_start: it's not a valid file\n");
-           arm_set_command_without_value(0, "G");
-           *arm_next_state = SCU_ARM_IDLE;
-           }*/
           break;
 
         case ARM_RQST_PUMP:
@@ -4453,7 +3978,10 @@ int gpio_set_direction(int pin_number, int value)
   if(file == NULL)
     return -1;
 
-  fprintf(file, "%i", value);
+  if(value)
+    fprintf(file, "in");
+  else
+    fprintf(file, "out");
 
   fclose(file);
   return 1;
@@ -4472,22 +4000,4 @@ int gpio_generic_set_value(char *path, int value)
 
   fclose(file);
   return 1;
-}
-
-int arm_battery_read(void)
-{
-  /* Arm battery interface */
-  FILE *arm_battery_file = NULL;
-  unsigned int battery_level = 0;
-
-  arm_battery_file = fopen("/sys/devices/platform/omap/tsc/ain5", "r");
-
-  if(!arm_battery_file)
-    return -1;
-
-  fscanf(arm_battery_file, "%i", (int *) &battery_level);
-
-  fclose(arm_battery_file);
-
-  return battery_level;
 }

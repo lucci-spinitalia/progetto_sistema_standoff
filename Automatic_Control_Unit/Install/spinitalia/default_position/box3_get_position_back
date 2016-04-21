@@ -1,0 +1,18 @@
+# Prendo il coperchio
+-3.114915,0.288028,0.582,1
+x,x,0.422,1
+x,x,x,0
+# Alzo il coperchio
+x,x,0.54,0
+# Poso il coperchio
+#-3.314236,0.426869,x,0
+-3.314149,0.4096,x,0
+x,x,0.47,0
+x,x,x,1
+# Alzo il braccio ed indietreggio per non prendere l'antenna
+x,0.2888028,0.582,1
+# Vado nella posizione di prelievo (copiare da dinamic_position)
+# Posizione di sicurezza per portare il braccio in quella di prelievo
+0,x,x,1
+# Posizione di prelievo
+0,0.537217,0.250149,1

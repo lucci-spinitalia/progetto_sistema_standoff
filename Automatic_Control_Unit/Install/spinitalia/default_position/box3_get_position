@@ -1,0 +1,17 @@
+# Mi assicuro di essere nella posizione di presa
+-0.0528,-0.44246,0.24612,1
+# Prendo il coperchio
+x,x,0.12612,x
+#x,x,x,2
+# Alzo il coperchio
+x,x,0.24612,2
+# Poso il coperchio
+-0.1575,-0.55,x,x
+x,x,0.16612,x
+#x,x,x,1
+# Alzo il braccio ed indietreggio per non prendere l'antenna
+x,x,0.24612,1
+# Evito l'antennna
+0.15733,-0.44421,x,x
+# Posizione di prelievo
+0,0.537217,-0.1,x
